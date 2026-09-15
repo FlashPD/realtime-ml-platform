@@ -26,4 +26,6 @@ jobs:
         run: python -m mypy src
       - name: Test
         run: python -m pytest
+      - name: Validate Helm chart
+        run: make helm-lint
 

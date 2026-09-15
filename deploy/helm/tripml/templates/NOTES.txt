@@ -1,0 +1,10 @@
+TripML local infrastructure is installed.
+
+Internal service endpoints:
+  PostgreSQL: {{ include "tripml.fullname" . }}-postgresql:5432
+  Redis:      {{ include "tripml.fullname" . }}-redis:6379
+  MinIO:      http://{{ include "tripml.fullname" . }}-minio:9000
+  Redpanda:   {{ include "tripml.fullname" . }}-redpanda:9092
+  Schema API: http://{{ include "tripml.fullname" . }}-redpanda:8081
+
+Credentials are stored in the pre-created {{ .Values.credentialsSecret }} Secret.

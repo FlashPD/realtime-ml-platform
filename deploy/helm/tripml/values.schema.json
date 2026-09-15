@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["credentialsSecret", "global", "postgresql", "redis", "minio", "redpanda"],
+  "properties": {
+    "credentialsSecret": {"type": "string", "minLength": 1},
+    "global": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["imagePullPolicy", "storageClass"],
+      "properties": {
+        "imagePullPolicy": {"enum": ["Always", "IfNotPresent", "Never"]},
+        "storageClass": {"type": "string"}
+      }
+    },
+    "postgresql": {"$ref": "#/$defs/serviceWithDatabase"},
+    "redis": {"$ref": "#/$defs/service"},
+    "minio": {"$ref": "#/$defs/service"},
+    "redpanda": {"$ref": "#/$defs/service"}
+  },
+  "$defs": {
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "image", "persistence", "resources"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "image": {"$ref": "#/$defs/image"},
+        "persistence": {"$ref": "#/$defs/persistence"},
+        "resources": {"type": "object"}
+      }
+    },
+    "serviceWithDatabase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "image", "database", "username", "persistence", "resources"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "image": {"$ref": "#/$defs/image"},
+        "database": {"type": "string", "minLength": 1},
+        "username": {"type": "string", "minLength": 1},
+        "persistence": {"$ref": "#/$defs/persistence"},
+        "resources": {"type": "object"}
+      }
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "tag"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "tag": {"type": "string", "minLength": 1}
+      }
+    },
+    "persistence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["size"],
+      "properties": {"size": {"type": "string", "pattern": "^[1-9][0-9]*(Mi|Gi)$"}}
+    }
+  }
+}

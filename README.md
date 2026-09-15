@@ -6,9 +6,9 @@ point-in-time-correct features, event-time stream processing, training/serving p
 model promotion, low-latency serving, closed-loop monitoring, and reproducible operations on
 Kubernetes.
 
-> **Status:** foundation milestone. The package, configuration system, versioned event
-> contracts, JSON Schema export, test suite, and CI quality gates are implemented. Batch and
-> streaming services are the next milestones.
+> **Status:** local infrastructure milestone. The package, configuration system, versioned event
+> contracts, CI quality gates, kind cluster, and stateful platform dependencies are implemented.
+> Batch ingestion is the next milestone.
 
 ## Intended architecture
 
@@ -62,6 +62,28 @@ fields. For example:
 TRIPML_SERVING__P95_LATENCY_OBJECTIVE_MS=75 tripml config validate
 ```
 
+## Local infrastructure
+
+Docker and `kubectl` are the only global prerequisites. The repository downloads checksum-
+verified, pinned kind and Helm binaries into the ignored `.tools/` directory.
+
+```bash
+make helm-lint       # render and validate the chart without a cluster
+make cluster         # create kind and install the infrastructure
+make cluster-test    # rerun database, cache, object-store, and broker smoke tests
+make cluster-status # inspect workloads, PVCs, and service endpoints
+make cluster-delete # remove the cluster and its local data
+```
+
+The local chart currently provisions single-node Redpanda, PostgreSQL, Redis, and MinIO with
+health probes, resource requests and limits, persistent volumes, and credentials generated at
+cluster creation. Secrets are never written to the repository or Helm values. MinIO is pinned to
+its final official community image because upstream moved to source-only distribution; that
+trade-off is intentionally limited to the zero-cost local profile.
+
+The packaging rationale and production boundary are recorded in
+[ADR-0001](docs/adr/0001-local-infrastructure-packaging.md).
+
 ## Engineering principles
 
 - Event and table boundaries have explicit, versioned contracts.
@@ -70,4 +92,3 @@ TRIPML_SERVING__P95_LATENCY_OBJECTIVE_MS=75 tripml config validate
 - A candidate model must pass declared quality and latency gates before promotion.
 - Failure recovery and observability are product behavior, not follow-up work.
 - Every portfolio claim will link to reproducible evidence from a showcase run.
-

@@ -15,6 +15,6 @@ dist/
 
 # Local platform state and downloaded data
 .tripml/
+.tools/
 data/
 artifacts/
-

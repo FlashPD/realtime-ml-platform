@@ -1,0 +1,51 @@
+credentialsSecret: tripml-infra-credentials
+
+global:
+  imagePullPolicy: IfNotPresent
+  storageClass: standard
+
+postgresql:
+  enabled: true
+  image:
+    repository: postgres
+    tag: 16.15-bookworm
+  database: tripml
+  username: tripml
+  persistence:
+    size: 5Gi
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: "1", memory: 1Gi}
+
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: 8.8.0-alpine3.23
+  persistence:
+    size: 1Gi
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+
+minio:
+  enabled: true
+  image:
+    repository: quay.io/minio/minio
+    tag: RELEASE.2025-09-07T16-13-09Z
+  persistence:
+    size: 10Gi
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: "1", memory: 1Gi}
+
+redpanda:
+  enabled: true
+  image:
+    repository: docker.redpanda.com/redpandadata/redpanda
+    tag: v26.2.2
+  persistence:
+    size: 5Gi
+  resources:
+    requests: {cpu: 250m, memory: 768Mi}
+    limits: {cpu: "1", memory: 1536Mi}

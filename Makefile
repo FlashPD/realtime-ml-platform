@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help install lint format typecheck test check contracts
+.PHONY: help install lint format typecheck test check contracts tools helm-lint cluster cluster-test cluster-status cluster-delete
 
 PYTHON ?= python3.12
 
@@ -11,6 +11,7 @@ install: ## Install the package and development dependencies
 	$(PYTHON) -m pip install -e '.[dev]'
 
 lint: ## Run static lint checks
+	bash -n scripts/*.sh
 	$(PYTHON) -m ruff check .
 	$(PYTHON) -m ruff format --check .
 
@@ -24,7 +25,26 @@ typecheck: ## Run strict static type checking
 test: ## Run the unit test suite with coverage
 	$(PYTHON) -m pytest
 
-check: lint typecheck test ## Run all local quality gates
+check: lint typecheck test helm-lint ## Run all local quality gates
 
 contracts: ## Export event contracts as JSON Schema
 	$(PYTHON) -m tripml contracts export --output build/contracts
+
+tools: ## Install pinned kind and Helm binaries into .tools/bin
+	./scripts/bootstrap-tools.sh all
+
+helm-lint: ## Lint and render the local platform chart
+	./scripts/bootstrap-tools.sh helm
+	./scripts/validate-chart.sh
+
+cluster: ## Create the kind cluster and install the local infrastructure chart
+	./scripts/cluster.sh create
+
+cluster-test: ## Run the infrastructure smoke tests against the existing cluster
+	./scripts/cluster.sh test
+
+cluster-status: ## Show local cluster workloads and services
+	./scripts/cluster.sh status
+
+cluster-delete: ## Delete the local kind cluster and all of its data
+	./scripts/cluster.sh delete
