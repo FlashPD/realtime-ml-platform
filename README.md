@@ -8,7 +8,7 @@ Kubernetes.
 
 > **Status:** batch-ingestion milestone. The package, configuration system, versioned event
 > contracts, CI gates, local infrastructure, and bounded-memory bronze-to-silver ingestion are
-> implemented. Airflow orchestration and durable lineage storage are next.
+> implemented, including durable PostgreSQL lineage. Airflow orchestration is next.
 
 ## Intended architecture
 
@@ -81,6 +81,23 @@ it in bounded Arrow record batches, and publishes normalized silver Parquet only
 partition gate passes. Invalid rows include per-rule flags under `data/quarantine/`; a rejected
 partition preserves any previously accepted silver file. The JSON quality report records row
 counts, rule-level violations, source checksum, output paths, and contract version.
+
+Set `TRIPML_LINEAGE__DATABASE_URL` to persist each run and its normalized quality checks in
+PostgreSQL. The migration is applied under an advisory lock, and run updates enforce explicit
+`running` to `accepted`, `quarantined`, or `failed` transitions. The DSN is a secret setting: it is
+excluded from configuration output and the configuration fingerprint.
+
+```bash
+TRIPML_LINEAGE__DATABASE_URL='postgresql://tripml:...@localhost:5432/tripml' \
+  make ingest MONTH=2024-01
+```
+
+The optional real-database integration test uses an isolated test database:
+
+```bash
+TRIPML_TEST_DATABASE_URL='postgresql://tripml:...@localhost:5432/tripml_test' \
+  pytest -m integration --no-cov
+```
 
 See the [data card](docs/data-card.md) for source limitations and validation rules, and
 [ADR-0002](docs/adr/0002-transactional-bounded-memory-ingestion.md) for the implementation trade-offs.

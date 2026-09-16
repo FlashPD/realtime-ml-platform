@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from tripml.settings import PlatformSettings, load_settings
+from tripml.settings import PlatformSettings, load_settings, settings_as_dict
 
 
 def test_packaged_configuration_is_valid_and_stable() -> None:
@@ -23,6 +23,24 @@ def test_environment_has_priority_over_yaml(monkeypatch: pytest.MonkeyPatch) -> 
     settings = load_settings()
 
     assert settings.serving.p95_latency_objective_ms == 75
+
+
+def test_lineage_database_url_is_excluded_from_output_and_fingerprint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    without_secret = load_settings()
+    monkeypatch.setenv(
+        "TRIPML_LINEAGE__DATABASE_URL",
+        "postgresql://tripml:do-not-print@postgresql:5432/tripml",
+    )
+
+    with_secret = load_settings()
+    public_settings = settings_as_dict(with_secret)
+
+    assert with_secret.lineage.database_url is not None
+    assert with_secret.fingerprint == without_secret.fingerprint
+    assert "database_url" not in public_settings["lineage"]
+    assert "do-not-print" not in str(public_settings)
 
 
 @pytest.mark.parametrize(

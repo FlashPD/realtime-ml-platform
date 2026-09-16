@@ -9,7 +9,15 @@ from pathlib import Path
 from typing import Any, Literal, Self
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, PositiveInt, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PositiveFloat,
+    PositiveInt,
+    SecretStr,
+    model_validator,
+)
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -83,6 +91,12 @@ class IngestionSettings(ImmutableModel):
     download_timeout_seconds: PositiveFloat = 120.0
 
 
+class LineageSettings(ImmutableModel):
+    database_url: SecretStr | None = Field(default=None, exclude=True)
+    connect_timeout_seconds: PositiveInt = 10
+    auto_migrate: bool = True
+
+
 class PlatformSettings(BaseSettings):
     """Root settings object. Environment variables take precedence over YAML."""
 
@@ -98,6 +112,7 @@ class PlatformSettings(BaseSettings):
     streaming: StreamingSettings = Field(default_factory=StreamingSettings)
     serving: ServingSettings = Field(default_factory=ServingSettings)
     ingestion: IngestionSettings = Field(default_factory=IngestionSettings)
+    lineage: LineageSettings = Field(default_factory=LineageSettings)
 
     @classmethod
     def settings_customise_sources(

@@ -1,6 +1,7 @@
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
+from uuid import UUID
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -8,6 +9,8 @@ import pytest
 
 from tripml.cli import main
 from tripml.contracts import CONTRACTS
+from tripml.ingestion import PartitionQualityReport
+from tripml.lineage import PostgresLineageRepository
 
 
 def test_config_validate_prints_validated_settings(capsys: pytest.CaptureFixture[str]) -> None:
@@ -32,8 +35,42 @@ def test_contract_export_writes_all_schemas(
 
 
 def test_ingest_local_partition_reports_acceptance(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    lineage_run_id = UUID("cccccccc-cccc-4ccc-8ccc-cccccccccccc")
+
+    class FakeLineage:
+        def __init__(self) -> None:
+            self.migrated = False
+            self.completed: tuple[UUID, PartitionQualityReport] | None = None
+
+        def migrate(self) -> None:
+            self.migrated = True
+
+        def start_run(self, **_kwargs: object) -> UUID:
+            return lineage_run_id
+
+        def complete_run(self, run_id: UUID, report: PartitionQualityReport) -> None:
+            self.completed = (run_id, report)
+
+        def fail_run(self, _run_id: UUID, _error: BaseException) -> None:
+            raise AssertionError("successful ingestion must not record failure")
+
+    fake_lineage = FakeLineage()
+
+    def fake_from_dsn(
+        _cls: type[PostgresLineageRepository], _dsn: str, _timeout: int
+    ) -> FakeLineage:
+        return fake_lineage
+
+    monkeypatch.setenv("TRIPML_LINEAGE__DATABASE_URL", "postgresql://secret@postgresql/tripml")
+    monkeypatch.setattr(
+        PostgresLineageRepository,
+        "from_dsn",
+        classmethod(fake_from_dsn),
+    )
     pickup = datetime(2024, 1, 15, 12)
     source = tmp_path / "source.parquet"
     pq.write_table(
@@ -64,3 +101,6 @@ def test_ingest_local_partition_reports_acceptance(
     assert exit_code == 0
     assert output["status"] == "accepted"
     assert output["valid_rows"] == 1
+    assert output["lineage_run_id"] == str(lineage_run_id)
+    assert fake_lineage.migrated is True
+    assert fake_lineage.completed is not None

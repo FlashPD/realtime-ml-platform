@@ -31,3 +31,7 @@ ingestion:
   max_partition_violation_rate: 0.10
   batch_size: 65536
   download_timeout_seconds: 120.0
+
+lineage:
+  connect_timeout_seconds: 10
+  auto_migrate: true
