@@ -6,10 +6,9 @@ point-in-time-correct features, event-time stream processing, training/serving p
 model promotion, low-latency serving, closed-loop monitoring, and reproducible operations on
 Kubernetes.
 
-> **Status:** orchestrated-ingestion milestone. The package, configuration system, versioned event
-> contracts, CI gates, local infrastructure, bounded-memory bronze-to-silver ingestion, durable
-> PostgreSQL lineage, and an Airflow 3 ingestion DAG are implemented. Deploying Airflow to the local
-> Kubernetes profile is next.
+> **Status:** Kubernetes-orchestrated ingestion milestone. The package, contracts, CI gates,
+> bounded-memory bronze-to-silver ingestion, durable PostgreSQL lineage, and Airflow 3 orchestration
+> now run in the local kind profile. Point-in-time-correct gold features are next.
 
 ## Intended architecture
 
@@ -113,17 +112,28 @@ failures twice. A partition rejected by its quality gate fails without retrying 
 operators to its durable lineage run.
 
 Airflow discovers the thin entry point at `dags/tripml_ingestion.py`; the implementation lives in
-the installable `tripml.airflow_dags` package so it can be type-checked and unit-tested. Install the
-runtime dependency separately when building an Airflow worker image:
+the installable `tripml.airflow_dags` package so it can be type-checked and unit-tested. For local
+development outside Kubernetes, install the orchestration dependency with:
 
 ```bash
 python -m pip install -e '.[orchestration]'
 ```
 
-The repository tests parse the DAG and exercise its retry and quality-failure behavior without
-requiring a scheduler. See
-[ADR-0003](docs/adr/0003-atomic-airflow-ingestion-task.md) for the task-boundary decision. Airflow
-itself is not yet deployed by the local Helm chart.
+The local cluster builds an immutable Airflow image containing the project and runs the API server,
+scheduler with a two-worker LocalExecutor, and required DAG processor as separate containers. It
+uses a dedicated PostgreSQL metadata database, persistent logs and ingestion data, generated
+Fernet/JWT/UI credentials, resource boundaries, and component health probes. Access it after
+`make cluster`:
+
+```bash
+make airflow-password # username: admin
+make airflow-ui       # http://localhost:8080; runs until interrupted
+```
+
+The repository tests parse the DAG and exercise its retry and quality-failure behavior without a
+scheduler; the Helm smoke test verifies the deployed Airflow health endpoint. See
+[ADR-0003](docs/adr/0003-atomic-airflow-ingestion-task.md) for the task boundary and
+[ADR-0004](docs/adr/0004-local-airflow-deployment.md) for the Kubernetes topology.
 
 ## Local infrastructure
 
@@ -133,16 +143,18 @@ verified, pinned kind and Helm binaries into the ignored `.tools/` directory.
 ```bash
 make helm-lint       # render and validate the chart without a cluster
 make cluster         # create kind and install the infrastructure
-make cluster-test    # rerun database, cache, object-store, and broker smoke tests
+make cluster-test    # rerun data-service, broker, and Airflow smoke tests
 make cluster-status # inspect workloads, PVCs, and service endpoints
 make cluster-delete # remove the cluster and its local data
 ```
 
-The local chart currently provisions single-node Redpanda, PostgreSQL, Redis, and MinIO with
-health probes, resource requests and limits, persistent volumes, and credentials generated at
+The local chart currently provisions single-node Redpanda, PostgreSQL, Redis, MinIO, and Airflow
+with health probes, resource requests and limits, persistent volumes, and credentials generated at
 cluster creation. Secrets are never written to the repository or Helm values. MinIO is pinned to
 its final official community image because upstream moved to source-only distribution; that
-trade-off is intentionally limited to the zero-cost local profile.
+trade-off is intentionally limited to the zero-cost local profile. Airflow's simple auth manager is
+likewise limited to the private development cluster; a shared deployment requires a production
+auth manager.
 
 The packaging rationale and production boundary are recorded in
 [ADR-0001](docs/adr/0001-local-infrastructure-packaging.md).

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["credentialsSecret", "global", "postgresql", "redis", "minio", "redpanda"],
+  "required": ["credentialsSecret", "global", "postgresql", "redis", "minio", "redpanda", "airflow"],
   "properties": {
     "credentialsSecret": {"type": "string", "minLength": 1},
     "global": {
@@ -17,7 +17,36 @@
     "postgresql": {"$ref": "#/$defs/serviceWithDatabase"},
     "redis": {"$ref": "#/$defs/service"},
     "minio": {"$ref": "#/$defs/service"},
-    "redpanda": {"$ref": "#/$defs/service"}
+    "redpanda": {"$ref": "#/$defs/service"},
+    "airflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "image", "metadataDatabase", "persistence", "resources"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "image": {"$ref": "#/$defs/image"},
+        "metadataDatabase": {"type": "string", "minLength": 1},
+        "persistence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["dataSize", "logsSize"],
+          "properties": {
+            "dataSize": {"type": "string", "pattern": "^[1-9][0-9]*(Mi|Gi)$"},
+            "logsSize": {"type": "string", "pattern": "^[1-9][0-9]*(Mi|Gi)$"}
+          }
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["apiServer", "scheduler", "dagProcessor"],
+          "properties": {
+            "apiServer": {"type": "object"},
+            "scheduler": {"type": "object"},
+            "dagProcessor": {"type": "object"}
+          }
+        }
+      }
+    }
   },
   "$defs": {
     "service": {

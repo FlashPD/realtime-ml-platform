@@ -49,3 +49,23 @@ redpanda:
   resources:
     requests: {cpu: 250m, memory: 768Mi}
     limits: {cpu: "1", memory: 1536Mi}
+
+airflow:
+  enabled: true
+  image:
+    repository: tripml-airflow
+    tag: 0.1.0
+  metadataDatabase: airflow
+  persistence:
+    dataSize: 10Gi
+    logsSize: 2Gi
+  resources:
+    apiServer:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: 500m, memory: 768Mi}
+    scheduler:
+      requests: {cpu: 250m, memory: 512Mi}
+      limits: {cpu: "1", memory: 1536Mi}
+    dagProcessor:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: 500m, memory: 768Mi}

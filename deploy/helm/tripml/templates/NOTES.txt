@@ -6,5 +6,11 @@ Internal service endpoints:
   MinIO:      http://{{ include "tripml.fullname" . }}-minio:9000
   Redpanda:   {{ include "tripml.fullname" . }}-redpanda:9092
   Schema API: http://{{ include "tripml.fullname" . }}-redpanda:8081
+{{- if .Values.airflow.enabled }}
+  Airflow:    http://{{ include "tripml.fullname" . }}-airflow:8080
+
+Run `make airflow-ui` to forward the Airflow UI to http://localhost:8080 and
+`make airflow-password` to retrieve the generated local admin password.
+{{- end }}
 
 Credentials are stored in the pre-created {{ .Values.credentialsSecret }} Secret.

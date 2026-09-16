@@ -17,7 +17,7 @@ if grep -Eq '^kind: Secret$' "${rendered_manifest}"; then
   exit 1
 fi
 
-for workload in postgresql redis minio redpanda; do
+for workload in postgresql redis minio redpanda airflow; do
   if ! grep -q "app.kubernetes.io/component: ${workload}" "${rendered_manifest}"; then
     echo "Rendered chart is missing the ${workload} workload" >&2
     exit 1
@@ -25,4 +25,3 @@ for workload in postgresql redis minio redpanda; do
 done
 
 echo "Chart lint and render checks passed"
-

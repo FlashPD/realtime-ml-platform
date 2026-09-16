@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help install lint format typecheck test check contracts ingest tools helm-lint cluster cluster-test cluster-status cluster-delete
+.PHONY: help install lint format typecheck test check contracts ingest tools helm-lint cluster cluster-test cluster-status airflow-password airflow-ui cluster-delete
 
 PYTHON ?= python3.12
 
@@ -49,6 +49,12 @@ cluster-test: ## Run the infrastructure smoke tests against the existing cluster
 
 cluster-status: ## Show local cluster workloads and services
 	./scripts/cluster.sh status
+
+airflow-password: ## Print the generated local Airflow admin password
+	./scripts/cluster.sh airflow-password
+
+airflow-ui: ## Forward the local Airflow UI to http://localhost:8080
+	./scripts/cluster.sh airflow-ui
 
 cluster-delete: ## Delete the local kind cluster and all of its data
 	./scripts/cluster.sh delete
