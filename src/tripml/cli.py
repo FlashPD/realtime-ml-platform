@@ -8,16 +8,8 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from tripml.contracts import contract_schemas
-from tripml.ingestion import (
-    PartitionPaths,
-    PartitionStatus,
-    YearMonth,
-    download_bronze,
-    source_url,
-    validate_partition,
-)
-from tripml.lineage import PostgresLineageRepository
 from tripml.settings import load_settings, settings_as_dict
+from tripml.workflows.ingestion import run_ingestion
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -69,65 +61,9 @@ def _export_contracts(output: Path) -> int:
 
 
 def _ingest(month_value: str, config_path: Path | None, source: Path | None) -> int:
-    month = YearMonth.parse(month_value)
-    settings = load_settings(config_path)
-    ingestion = settings.ingestion
-    paths = PartitionPaths.from_root(ingestion.data_root, month)
-    lineage_settings = settings.lineage
-    database_url = lineage_settings.database_url
-    lineage = (
-        PostgresLineageRepository.from_dsn(
-            database_url.get_secret_value(), lineage_settings.connect_timeout_seconds
-        )
-        if database_url is not None
-        else None
-    )
-    if lineage is not None and lineage_settings.auto_migrate:
-        lineage.migrate()
-
-    expected_source_path = source if source is not None else paths.bronze_file
-    expected_source_url = (
-        expected_source_path.resolve().as_uri()
-        if source is not None
-        else source_url(month, ingestion.source_base_url)
-    )
-    lineage_run_id = (
-        lineage.start_run(
-            partition_key=str(month),
-            source_path=str(expected_source_path),
-            source_url=expected_source_url,
-            config_fingerprint=settings.fingerprint,
-        )
-        if lineage is not None
-        else None
-    )
-    try:
-        if source is None:
-            manifest = download_bronze(
-                month,
-                paths,
-                base_url=ingestion.source_base_url,
-                timeout_seconds=ingestion.download_timeout_seconds,
-            )
-            source = Path(manifest.object_path)
-        report = validate_partition(
-            source,
-            month,
-            paths,
-            max_violation_rate=ingestion.max_partition_violation_rate,
-            batch_size=ingestion.batch_size,
-        )
-    except Exception as error:
-        if lineage is not None and lineage_run_id is not None:
-            lineage.fail_run(lineage_run_id, error)
-        raise
-    if lineage is not None and lineage_run_id is not None:
-        lineage.complete_run(lineage_run_id, report)
-
-    document = report.model_dump(mode="json")
-    document["lineage_run_id"] = str(lineage_run_id) if lineage_run_id is not None else None
-    print(json.dumps(document, indent=2, sort_keys=True))
-    return 0 if report.status is PartitionStatus.ACCEPTED else 2
+    execution = run_ingestion(month_value, config_path=config_path, source=source)
+    print(json.dumps(execution.as_document(), indent=2, sort_keys=True))
+    return execution.exit_code
 
 
 def main(argv: Sequence[str] | None = None) -> int:

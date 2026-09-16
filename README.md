@@ -6,9 +6,10 @@ point-in-time-correct features, event-time stream processing, training/serving p
 model promotion, low-latency serving, closed-loop monitoring, and reproducible operations on
 Kubernetes.
 
-> **Status:** batch-ingestion milestone. The package, configuration system, versioned event
-> contracts, CI gates, local infrastructure, and bounded-memory bronze-to-silver ingestion are
-> implemented, including durable PostgreSQL lineage. Airflow orchestration is next.
+> **Status:** orchestrated-ingestion milestone. The package, configuration system, versioned event
+> contracts, CI gates, local infrastructure, bounded-memory bronze-to-silver ingestion, durable
+> PostgreSQL lineage, and an Airflow 3 ingestion DAG are implemented. Deploying Airflow to the local
+> Kubernetes profile is next.
 
 ## Intended architecture
 
@@ -101,6 +102,28 @@ TRIPML_TEST_DATABASE_URL='postgresql://tripml:...@localhost:5432/tripml_test' \
 
 See the [data card](docs/data-card.md) for source limitations and validation rules, and
 [ADR-0002](docs/adr/0002-transactional-bounded-memory-ingestion.md) for the implementation trade-offs.
+
+## Airflow orchestration
+
+The manually triggered `tripml_ingestion` DAG runs the same orchestrator-independent workflow as
+the CLI. It accepts a `month` parameter, defaulting to `2024-01`, and an optional worker-visible
+`config_path`. The DAG requires `TRIPML_LINEAGE__DATABASE_URL`, limits its ingestion task to 20
+minutes and the overall run to 30 minutes, permits only one active run, and retries transient
+failures twice. A partition rejected by its quality gate fails without retrying and points
+operators to its durable lineage run.
+
+Airflow discovers the thin entry point at `dags/tripml_ingestion.py`; the implementation lives in
+the installable `tripml.airflow_dags` package so it can be type-checked and unit-tested. Install the
+runtime dependency separately when building an Airflow worker image:
+
+```bash
+python -m pip install -e '.[orchestration]'
+```
+
+The repository tests parse the DAG and exercise its retry and quality-failure behavior without
+requiring a scheduler. See
+[ADR-0003](docs/adr/0003-atomic-airflow-ingestion-task.md) for the task-boundary decision. Airflow
+itself is not yet deployed by the local Helm chart.
 
 ## Local infrastructure
 
