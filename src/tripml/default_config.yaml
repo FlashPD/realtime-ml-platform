@@ -25,3 +25,9 @@ serving:
   feature_staleness_limit_seconds: 600
   p95_latency_objective_ms: 50.0
 
+ingestion:
+  data_root: data
+  source_base_url: https://d37ci6vzurychx.cloudfront.net/trip-data
+  max_partition_violation_rate: 0.10
+  batch_size: 65536
+  download_timeout_seconds: 120.0

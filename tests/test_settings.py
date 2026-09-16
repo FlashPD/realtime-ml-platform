@@ -12,6 +12,7 @@ def test_packaged_configuration_is_valid_and_stable() -> None:
 
     assert first.training.holdout_month == "2024-04"
     assert first.streaming.short_window_seconds == 900
+    assert first.ingestion.max_partition_violation_rate == 0.1
     assert first.fingerprint == second.fingerprint
     assert len(first.fingerprint) == 64
 

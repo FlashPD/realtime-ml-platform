@@ -75,6 +75,14 @@ class ServingSettings(ImmutableModel):
     p95_latency_objective_ms: PositiveFloat = 50.0
 
 
+class IngestionSettings(ImmutableModel):
+    data_root: Path = Path("data")
+    source_base_url: str = "https://d37ci6vzurychx.cloudfront.net/trip-data"
+    max_partition_violation_rate: float = Field(default=0.10, ge=0, le=1)
+    batch_size: PositiveInt = 65_536
+    download_timeout_seconds: PositiveFloat = 120.0
+
+
 class PlatformSettings(BaseSettings):
     """Root settings object. Environment variables take precedence over YAML."""
 
@@ -89,6 +97,7 @@ class PlatformSettings(BaseSettings):
     promotion_gate: PromotionGateSettings = Field(default_factory=PromotionGateSettings)
     streaming: StreamingSettings = Field(default_factory=StreamingSettings)
     serving: ServingSettings = Field(default_factory=ServingSettings)
+    ingestion: IngestionSettings = Field(default_factory=IngestionSettings)
 
     @classmethod
     def settings_customise_sources(

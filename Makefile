@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help install lint format typecheck test check contracts tools helm-lint cluster cluster-test cluster-status cluster-delete
+.PHONY: help install lint format typecheck test check contracts ingest tools helm-lint cluster cluster-test cluster-status cluster-delete
 
 PYTHON ?= python3.12
 
@@ -29,6 +29,10 @@ check: lint typecheck test helm-lint ## Run all local quality gates
 
 contracts: ## Export event contracts as JSON Schema
 	$(PYTHON) -m tripml contracts export --output build/contracts
+
+ingest: ## Ingest a TLC month (MONTH=YYYY-MM)
+	@test -n "$(MONTH)" || (echo "MONTH is required (example: make ingest MONTH=2024-01)" && exit 2)
+	$(PYTHON) -m tripml ingest --month "$(MONTH)"
 
 tools: ## Install pinned kind and Helm binaries into .tools/bin
 	./scripts/bootstrap-tools.sh all

@@ -13,6 +13,7 @@ authors = [{ name = "Pushyanth" }]
 dependencies = [
   "pydantic>=2.10,<3",
   "pydantic-settings>=2.7,<3",
+  "pyarrow>=25.0.1,<26",
   "PyYAML>=6.0.2,<7",
 ]
 
@@ -105,3 +106,6 @@ plugins = ["pydantic.mypy"]
 module = "yaml"
 ignore_missing_imports = false
 
+[[tool.mypy.overrides]]
+module = ["pyarrow", "pyarrow.*"]
+ignore_missing_imports = true

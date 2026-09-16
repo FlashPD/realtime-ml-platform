@@ -6,9 +6,9 @@ point-in-time-correct features, event-time stream processing, training/serving p
 model promotion, low-latency serving, closed-loop monitoring, and reproducible operations on
 Kubernetes.
 
-> **Status:** local infrastructure milestone. The package, configuration system, versioned event
-> contracts, CI quality gates, kind cluster, and stateful platform dependencies are implemented.
-> Batch ingestion is the next milestone.
+> **Status:** batch-ingestion milestone. The package, configuration system, versioned event
+> contracts, CI gates, local infrastructure, and bounded-memory bronze-to-silver ingestion are
+> implemented. Airflow orchestration and durable lineage storage are next.
 
 ## Intended architecture
 
@@ -61,6 +61,29 @@ fields. For example:
 ```bash
 TRIPML_SERVING__P95_LATENCY_OBJECTIVE_MS=75 tripml config validate
 ```
+
+## Batch ingestion
+
+Download and process one official TLC yellow-taxi partition:
+
+```bash
+make ingest MONTH=2024-01
+```
+
+For deterministic development, validate an existing Parquet fixture without network access:
+
+```bash
+tripml ingest --month 2024-01 --source path/to/fixture.parquet
+```
+
+The ingestion path writes the source atomically to `data/bronze/` with a SHA-256 manifest, scans
+it in bounded Arrow record batches, and publishes normalized silver Parquet only after the
+partition gate passes. Invalid rows include per-rule flags under `data/quarantine/`; a rejected
+partition preserves any previously accepted silver file. The JSON quality report records row
+counts, rule-level violations, source checksum, output paths, and contract version.
+
+See the [data card](docs/data-card.md) for source limitations and validation rules, and
+[ADR-0002](docs/adr/0002-transactional-bounded-memory-ingestion.md) for the implementation trade-offs.
 
 ## Local infrastructure
 
