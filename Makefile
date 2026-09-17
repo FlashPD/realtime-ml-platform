@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help install lint format typecheck test check contracts ingest features train serve tools helm-lint cluster cluster-test cluster-status airflow-password airflow-ui mlflow-ui serving-deploy serving-ui cluster-delete
+.PHONY: help install lint format typecheck test check contracts ingest features train serve benchmark tools helm-lint cluster cluster-test cluster-status airflow-password airflow-ui mlflow-ui serving-deploy serving-ui cluster-delete
 
 PYTHON ?= python3.12
 
@@ -43,6 +43,9 @@ train: ## Train, compare, and promotion-gate model candidates
 
 serve: ## Serve production ETA predictions with optional Redis features
 	$(PYTHON) -m tripml serve
+
+benchmark: ## Benchmark serving (BENCHMARK_ARGS='--output artifacts/benchmarks/run ...')
+	$(PYTHON) -m tripml benchmark --requests-file examples/benchmark/requests.jsonl $(BENCHMARK_ARGS)
 
 tools: ## Install pinned kind and Helm binaries into .tools/bin
 	./scripts/bootstrap-tools.sh all

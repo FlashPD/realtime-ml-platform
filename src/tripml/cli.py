@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 from collections.abc import Sequence
 from pathlib import Path
@@ -66,6 +67,24 @@ def _parser() -> argparse.ArgumentParser:
     topic.add_argument("--config", type=Path, help="Optional YAML configuration path")
     topic.add_argument("--partitions", type=int, default=3)
     topic.add_argument("--replication-factor", type=int, default=1)
+    benchmark = commands.add_parser("benchmark", help="Measure serving under constant-arrival load")
+    benchmark.add_argument("--requests-file", type=Path, required=True, help="ETARequest JSONL")
+    benchmark.add_argument("--output", type=Path, required=True, help="New evidence directory")
+    benchmark.add_argument("--base-url", default="http://127.0.0.1:8000")
+    benchmark.add_argument("--requests", type=int, default=1000)
+    benchmark.add_argument("--rate", type=float, default=100, help="Scheduled requests per second")
+    benchmark.add_argument("--concurrency", type=int, default=32, help="Maximum in-flight requests")
+    benchmark.add_argument("--warmup", type=int, default=20)
+    benchmark.add_argument("--timeout-seconds", type=float, default=2)
+    benchmark.add_argument("--p95-objective-ms", type=float, default=50)
+    benchmark.add_argument("--max-error-rate", type=float, default=0.01)
+    benchmark.add_argument(
+        "--expected-features", choices=("any", "static", "streaming"), default="any"
+    )
+    benchmark.add_argument(
+        "--expected-publication", choices=("acknowledged", "disabled"), default="acknowledged"
+    )
+    benchmark.add_argument("--label", default="serving-load")
     return parser
 
 
@@ -163,6 +182,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(f"Prediction topic ready: {settings.publication.topic}")
         return 0
+    if args.command == "benchmark":
+        from tripml.benchmark import BenchmarkSettings, run_benchmark
+
+        options = vars(args).copy()
+        for key in ("command", "requests_file", "output"):
+            options.pop(key)
+        report = asyncio.run(
+            run_benchmark(
+                BenchmarkSettings(**options), requests_path=args.requests_file, output=args.output
+            )
+        )
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0 if report["passed"] else 1
     raise AssertionError("unreachable command")
 
 

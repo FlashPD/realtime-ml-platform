@@ -6,7 +6,7 @@ point-in-time-correct features, event-time stream processing, training/serving p
 model promotion, low-latency serving, closed-loop monitoring, and reproducible operations on
 Kubernetes.
 
-> **Status:** Kubernetes serving milestone. The package, contracts, CI gates,
+> **Status:** Serving benchmark milestone. The package, contracts, CI gates,
 > bounded-memory bronze-to-silver ingestion, durable PostgreSQL lineage, Airflow 3 orchestration,
 > leakage-safe dbt-duckdb gold features, deterministic model comparison, and explicit promotion
 > gates are implemented. MLflow tracking, conditional registration, and production-alias protection
@@ -14,7 +14,9 @@ Kubernetes.
 > pass event-time checks, with explicit static fallback, health endpoints, and Prometheus metrics.
 > Configured prediction publication now waits for Redpanda acknowledgment before HTTP success.
 > Serving now has a non-root image, Helm deployment, health probes, topic provisioning, and an
-> optional CPU HPA. The stream producer, ground-truth joiner, and measured load objectives remain pending.
+> optional CPU HPA. A constant-arrival HTTP benchmark now exports request-level evidence and enforces
+> latency, error, overload, and serving-mode checks. Representative cluster load measurements, the
+> stream producer, and the ground-truth joiner remain pending.
 
 ## Intended architecture
 
@@ -62,7 +64,8 @@ showcase run has measured the production-shaped objectives yet.
 | Online-feature serving | Versioned zone-role Redis keys, validated exclusive-end snapshots, streaming inference, socket timeouts without retries, lookup-outcome metrics, static degradation, and a real-Redis integration test in CI |
 | Prediction publication | JSON contract events keyed by trip ID, broker acknowledgment before HTTP success, idempotent Kafka producer, bounded queue/waits, delivery metrics, and a real HTTP-to-Redpanda round-trip test in CI |
 | Kubernetes serving | Non-root image, opt-in Helm deployment, registry/Redis/broker wiring, idempotent topic provisioning, resource limits, probes, rolling updates, optional CPU HPA, and an isolated kind smoke test |
-| Engineering documentation | Data card and eleven ADRs covering infrastructure, ingestion, orchestration, feature correctness, reproducible promotion decisions, registry safety, serving, delivery semantics, and deployment |
+| Serving benchmark tooling | Constant-arrival load, bounded concurrency, explicit dropped arrivals, validated predictions and serving modes, objective exit codes, checksummed raw evidence, and failure-path tests |
+| Engineering documentation | Data card and twelve ADRs covering infrastructure, ingestion, orchestration, feature correctness, reproducible promotion decisions, registry safety, serving, delivery semantics, deployment, and load measurement |
 
 ### Remaining
 
@@ -71,7 +74,7 @@ integration, and documentation. They are ranges rather than deadlines.
 
 | Priority | Workstream | Definition of done | Estimate |
 |---:|---|---|---:|
-| 1 | Validate serving under load | Benchmark latency and degradation, exercise CPU HPA, and add request-rate scaling with monitoring; authenticate any future operator endpoints | 1–2 days |
+| 1 | Validate serving under load | Use the benchmark on representative cluster traffic, measure Redis/broker degradation, exercise CPU HPA, and add request-rate scaling with monitoring; authenticate any future operator endpoints | 1–2 days |
 | 2 | Event replay and stream processor | Event-time replayer, registered broker schemas, Bytewax windows and watermarks, late-event policy, Redis writes, checkpoint recovery, and service metrics | 6–8 days |
 | 3 | Offline/online feature parity | Replay a fixture day, compare stream outputs with gold, report mismatch rate and maximum difference, and fail on skew | 1–2 days |
 | 4 | Closed-loop evaluation | Prediction/completion joiner, durable error records, live MAE and coverage, Evidently drift report, and guarded retraining trigger | 4–6 days |
@@ -258,7 +261,8 @@ finite and nonnegative; invalid inputs return HTTP 422. Inference failures retur
 `/healthz` reports process liveness, `/readyz` reports the loaded model and fallback mode, `/docs`
 provides the interactive API contract, and `/metrics` exposes response counters, fallback counts, and
 a latency histogram with a 50 ms bucket. Metrics are per process; the CLI runs one Uvicorn worker.
-Latency objectives have **not** yet been measured under serving load.
+Representative cluster latency objectives have **not** yet been established. The benchmark below
+provides the measurement path; a synthetic local run alone does not validate those objectives.
 
 Enable online feature reads by pointing the API to a Redis instance populated with the snapshot
 contract described in [ADR-0009](docs/adr/0009-online-feature-serving.md):
@@ -401,6 +405,61 @@ TRIPML_TEST_KIND_CONTEXT=kind-tripml TRIPML_TEST_SERVING_IMAGE=tripml-serving:ch
 ```
 
 See [ADR-0011](docs/adr/0011-kubernetes-serving-deployment.md) for deployment and validation boundaries.
+
+### Measuring serving under load
+
+Install the lightweight load-client extra and benchmark a running API:
+
+```bash
+python -m pip install -e '.[benchmark]'
+make benchmark BENCHMARK_ARGS='--output artifacts/benchmarks/first-run --expected-features static'
+```
+
+The default is 1,000 requests at 100 requests/second, at most 32 in flight, 20 sequential warm-up
+requests, a 2-second total request timeout, successful-request P95 below 50 ms, and at most 1% errors.
+It expects acknowledged prediction publication. For a local API with publication deliberately
+disabled, add `--expected-publication disabled`. A passing run exits zero; any failed objective
+exits one. Use a **new output directory** for each run; previous evidence is never overwritten.
+
+The included three-row fixture is synthetic and uses one zone pair at a fixed historical pickup
+time. It is suitable for checking the measurement path, not representing NYC traffic. Supply a
+representative `ETARequest` JSONL fixture and explicit online-mode expectations for a serving claim:
+
+```bash
+tripml benchmark --base-url http://127.0.0.1:8000 \
+  --requests-file path/to/representative-requests.jsonl \
+  --requests 10000 --rate 100 --concurrency 32 \
+  --expected-features streaming --expected-publication acknowledged \
+  --label online-features --output artifacts/benchmarks/online-features
+```
+
+The scheduler continues offering arrivals at the requested rate when responses slow down. If its
+concurrency bound is reached, it records a dropped arrival and fails the run. P95 includes client
+scheduling delay, the HTTP exchange, and prediction validation; separate HTTP and dispatch-lag
+percentiles help identify a saturated load generator. Percentiles use exact nearest ranks. Errors,
+timeouts, malformed predictions, wrong trip IDs, unexpected feature modes, and mismatched publication
+headers do not count as successful predictions. Error rate includes every scheduled arrival;
+warm-up samples are saved separately and excluded from measured gates.
+
+Each directory contains a generated `README.md`, `summary.json` with gates and SHA-256 digests,
+normalized `requests.jsonl`, `config.json`, and raw measured/warm-up samples. Samples include model
+versions, prediction IDs, serving modes, status, and timing, allowing results to be audited.
+Requests cycle through the fixture with unique `benchmark-<run-id>-...` trip IDs; **both warm-up and
+measured requests publish real events when publication is enabled**. Evaluation consumers must
+exclude this prefix. Use a dedicated benchmark deployment/topic for isolated failure experiments.
+
+For Redis degradation, benchmark the same workload against an isolated API whose Redis is
+unavailable and set `--expected-features static`; inspect its feature-lookup metrics to verify the
+failure cause. For recovery, restore that dependency and rerun with `--expected-features streaming`.
+The client never changes services or injects faults itself. Broker failure should produce a failed
+benchmark with HTTP errors because the API requires acknowledgment before success.
+
+Record hardware, resource limits, model provenance, dependency state, and network path alongside
+the results. A host port-forward run includes that forwarding path and does not prove in-cluster
+capacity or HPA behavior. For those measurements, run the client in-cluster against the Service and
+record replica/CPU observations during a sustained run. Model accuracy, feature parity, failure
+recovery automation, and autoscaling remain separate validations. See
+[ADR-0012](docs/adr/0012-serving-load-evidence.md) for measurement trade-offs.
 
 ## Airflow orchestration
 
