@@ -34,9 +34,32 @@ jobs:
         run: python -m ruff check . && python -m ruff format --check .
       - name: Type check
         run: python -m mypy src
+      - name: Start disposable Redpanda
+        run: |
+          docker run -d --name tripml-ci-redpanda -p 127.0.0.1:19092:19092 \
+            docker.redpanda.com/redpandadata/redpanda:v26.2.2 \
+            redpanda start --mode dev-container --smp 1 --memory 512M \
+            --reserve-memory 0M --overprovisioned --check=false \
+            --kafka-addr 0.0.0.0:19092 --advertise-kafka-addr 127.0.0.1:19092
+          for attempt in {1..30}; do
+            if docker exec tripml-ci-redpanda rpk cluster health; then
+              exit 0
+            fi
+            echo "Waiting for Redpanda (${attempt}/30)"
+            sleep 2
+          done
+          docker logs tripml-ci-redpanda
+          exit 1
       - name: Test
         env:
           TRIPML_TEST_REDIS_URL: redis://127.0.0.1:6379/15
+          TRIPML_TEST_KAFKA_BOOTSTRAP_SERVERS: 127.0.0.1:19092
         run: python -m pytest
       - name: Validate Helm chart
         run: make helm-lint
+      - name: Broker diagnostics
+        if: failure()
+        run: docker logs tripml-ci-redpanda || true
+      - name: Remove disposable Redpanda
+        if: always()
+        run: docker rm -f tripml-ci-redpanda || true

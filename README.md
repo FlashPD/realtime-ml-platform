@@ -6,13 +6,14 @@ point-in-time-correct features, event-time stream processing, training/serving p
 model promotion, low-latency serving, closed-loop monitoring, and reproducible operations on
 Kubernetes.
 
-> **Status:** Online-feature serving milestone. The package, contracts, CI gates,
+> **Status:** Acknowledged prediction-publication milestone. The package, contracts, CI gates,
 > bounded-memory bronze-to-silver ingestion, durable PostgreSQL lineage, Airflow 3 orchestration,
 > leakage-safe dbt-duckdb gold features, deterministic model comparison, and explicit promotion
 > gates are implemented. MLflow tracking, conditional registration, and production-alias protection
 > are also complete. The prediction API selects the verified streaming model when Redis snapshots
 > pass event-time checks, with explicit static fallback, health endpoints, and Prometheus metrics.
-> The stream producer, prediction publication, and the serving deployment are still pending.
+> Configured prediction publication now waits for Redpanda acknowledgment before HTTP success.
+> The stream producer, ground-truth joiner, and serving deployment are still pending.
 
 ## Intended architecture
 
@@ -58,7 +59,8 @@ showcase run has measured the production-shaped objectives yet.
 | Scheduled model lifecycle | Manually triggered Airflow training DAG with bounded retries, execution timeout, one active run, and the same tracking workflow used by the CLI |
 | Initial prediction API | Verified MLflow or local-bundle loading, native static-model inference, New York calendar parity, explicit fallback provenance, health/readiness, Prometheus metrics, and a training-to-registry-to-HTTP integration test |
 | Online-feature serving | Versioned zone-role Redis keys, validated exclusive-end snapshots, streaming inference, socket timeouts without retries, lookup-outcome metrics, static degradation, and a real-Redis integration test in CI |
-| Engineering documentation | Data card and nine ADRs covering infrastructure, ingestion, orchestration, feature correctness, reproducible promotion decisions, registry safety, and serving |
+| Prediction publication | JSON contract events keyed by trip ID, broker acknowledgment before HTTP success, idempotent Kafka producer, bounded queue/waits, delivery metrics, and a real HTTP-to-Redpanda round-trip test in CI |
+| Engineering documentation | Data card and ten ADRs covering infrastructure, ingestion, orchestration, feature correctness, reproducible promotion decisions, registry safety, serving, and delivery semantics |
 
 ### Remaining
 
@@ -67,7 +69,7 @@ integration, and documentation. They are ranges rather than deadlines.
 
 | Priority | Workstream | Definition of done | Estimate |
 |---:|---|---|---:|
-| 1 | Complete prediction service | Prediction publication, authentication for any operator actions, Helm deployment, and HPA | 3–5 days |
+| 1 | Complete prediction service | Authentication for any operator actions, Helm deployment, and HPA | 3–5 days |
 | 2 | Event replay and stream processor | Event-time replayer, registered broker schemas, Bytewax windows and watermarks, late-event policy, Redis writes, checkpoint recovery, and service metrics | 6–8 days |
 | 3 | Offline/online feature parity | Replay a fixture day, compare stream outputs with gold, report mismatch rate and maximum difference, and fail on skew | 1–2 days |
 | 4 | Closed-loop evaluation | Prediction/completion joiner, durable error records, live MAE and coverage, Evidently drift report, and guarded retraining trigger | 4–6 days |
@@ -288,11 +290,56 @@ TRIPML_TEST_REDIS_URL='redis://127.0.0.1:6379/15' \
 ```
 
 The static sibling has held-out evaluation metrics but is not independently promotion-gated. The
-stream producer, broker publication, operator actions, and Kubernetes serving deployment remain
-pending. Predictions currently exist only in the HTTP response and are not durably logged. Lagged
+stream producer, operator actions, and Kubernetes serving deployment remain pending. Lagged
 Redis snapshots have not yet passed offline/online parity tests. See
 [ADR-0008](docs/adr/0008-initial-prediction-api.md) for the original serving boundary and ADR-0009
 for the online read contract.
+
+### Prediction publication
+
+Set `TRIPML_PUBLICATION__BOOTSTRAP_SERVERS` to enable acknowledged delivery to the `predictions`
+topic. The topic must already exist; the producer disables automatic creation. For a broker reachable
+from the API at `localhost:19092`, provision it with `rpk` and start serving:
+
+```bash
+rpk topic create predictions --partitions 3 --replicas 1 -X brokers=localhost:19092
+TRIPML_PUBLICATION__BOOTSTRAP_SERVERS=localhost:19092 tripml serve
+```
+
+The local client uses plaintext Kafka, matching the private local Redpanda profile. Use a broker's
+advertised address reachable from the API process; a Kubernetes port-forward alone does not rewrite
+Kafka metadata. Serving deployment and external broker authentication are separate follow-up work.
+
+Every successful request in this mode has received a broker delivery acknowledgment. The message is
+the same `Prediction` JSON returned over HTTP, keyed by UTF-8 `trip_id`, with schema-version and
+prediction-ID headers. Both streaming and static-fallback predictions are published. HTTP 200 carries
+`X-TripML-Publication: acknowledged`. Without broker configuration, the explicit model-only mode
+carries `X-TripML-Publication: disabled`; `/readyz` also exposes the configured publication mode.
+
+Queue rejection, producer failure, or an acknowledgment timeout returns HTTP 503 with a prediction
+ID and delivery outcome, rather than returning an unlogged prediction as success. A timeout or
+delivery error can still mean the event reached the broker; `delivery_unknown` makes that ambiguity
+explicit. Retrying HTTP creates a new prediction ID. Kafka producer idempotence covers transport
+retries, **not** HTTP retry deduplication or exactly-once evaluation. Consumers should deduplicate
+by prediction ID and apply an explicit policy when one trip has multiple predictions.
+
+The default producer delivery timeout is 1 second and the request acknowledgment wait is 1.5 seconds.
+These are failure bounds, not measured serving latency. Queue capacity is 10,000 messages and 10 MiB.
+Metrics include `tripml_prediction_publication_total{outcome=...}` and
+`tripml_prediction_publication_duration_seconds`. Shutdown stops admission and attempts a bounded
+flush; unconfirmed messages are logged. There is no durable application outbox or PostgreSQL
+prediction log yet. The local broker has one replica, so its acknowledgment provides no redundancy
+against loss of that broker's storage.
+
+The broker integration test creates and removes a unique test topic and compares a consumed event
+with its HTTP response. CI starts an isolated Redpanda instance. To run it against a disposable broker:
+
+```bash
+TRIPML_TEST_KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:19092 \
+  pytest tests/integration/test_prediction_publication.py --no-cov
+```
+
+See [ADR-0010](docs/adr/0010-acknowledged-prediction-publication.md) for the delivery boundary.
 
 ## Airflow orchestration
 

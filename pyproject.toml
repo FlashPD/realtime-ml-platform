@@ -38,6 +38,7 @@ serving = [
   "uvicorn>=0.53,<1",
   "prometheus-client>=0.24,<1",
   "redis>=6.4,<7",
+  "confluent-kafka>=2.15,<3",
 ]
 dev = [
   "tripml[serving]",
@@ -146,4 +147,8 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["mlflow", "mlflow.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["confluent_kafka", "confluent_kafka.*"]
 ignore_missing_imports = true

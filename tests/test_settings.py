@@ -3,7 +3,13 @@ from pathlib import Path
 import pytest
 from pydantic import SecretStr, ValidationError
 
-from tripml.settings import PlatformSettings, ServingSettings, load_settings, settings_as_dict
+from tripml.settings import (
+    PlatformSettings,
+    PublicationSettings,
+    ServingSettings,
+    load_settings,
+    settings_as_dict,
+)
 
 
 def test_packaged_configuration_is_valid_and_stable() -> None:
@@ -92,3 +98,20 @@ def test_redis_credentials_are_excluded_from_output_and_fingerprint(
 def test_redis_url_cannot_override_timeout_policy(url: str) -> None:
     with pytest.raises(ValidationError):
         ServingSettings(redis_url=SecretStr(url))
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"topic": ".."},
+        {"topic": "has space"},
+        {"topic": "é"},
+        {"bootstrap_servers": " "},
+        {"ack_timeout_seconds": 0.5},
+        {"delivery_timeout_ms": 0},
+        {"queue_max_messages": 0},
+    ],
+)
+def test_invalid_publication_configuration_is_rejected(options: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        PublicationSettings.model_validate(options)

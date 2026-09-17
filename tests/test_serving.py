@@ -21,6 +21,7 @@ from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from tripml.contracts import ETARequest, OnlineZoneWindowFeatures, Prediction, PromotionOutcome
 from tripml.online_features import RedisFeatureStore
+from tripml.publication import KafkaPredictionPublisher, PublicationError, PublicationOutcome
 from tripml.serving import (
     ServingError,
     ServingModel,
@@ -34,6 +35,7 @@ from tripml.settings import (
     ModelSettings,
     PlatformSettings,
     PromotionGateSettings,
+    PublicationSettings,
     ServingSettings,
     StreamingSettings,
     TrackingSettings,
@@ -143,6 +145,7 @@ def test_api_lifecycle_predictions_and_metrics(bundle: Path) -> None:
         assert ready["registry_version"] is None
         response = client.post("/v1/eta", json=PAYLOAD)
         assert response.status_code == 200
+        assert response.headers["X-TripML-Publication"] == "disabled"
         prediction = Prediction.model_validate(response.json())
         assert prediction.model_version == ready["model_version"]
         assert prediction.trip_id == PAYLOAD["trip_id"]
@@ -158,6 +161,75 @@ def test_api_lifecycle_predictions_and_metrics(bundle: Path) -> None:
     assert client.get("/readyz").status_code == 503
     assert client.post("/v1/eta", json=PAYLOAD).status_code == 503
     assert client.get("/healthz").status_code == 200
+
+
+def test_http_success_publishes_the_exact_prediction_once(bundle: Path) -> None:
+    publisher = MagicMock(spec=KafkaPredictionPublisher)
+    with TestClient(create_app(bundle=bundle, publisher=publisher)) as client:
+        assert client.get("/readyz").json()["publication_mode"] == "acknowledged"
+        response = client.post("/v1/eta", json=PAYLOAD)
+        assert response.status_code == 200
+        assert response.headers["X-TripML-Publication"] == "acknowledged"
+        publisher.publish.assert_called_once_with(Prediction.model_validate(response.json()))
+        assert (
+            'tripml_prediction_publication_total{outcome="acknowledged"} 1.0'
+            in client.get("/metrics").text
+        )
+        client.post("/v1/eta", json={})
+        publisher.publish.assert_called_once()
+    publisher.close.assert_not_called()  # The injected publisher remains caller-owned.
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        PublicationOutcome.QUEUE_FULL,
+        PublicationOutcome.FAILED,
+        PublicationOutcome.TIMEOUT,
+        PublicationOutcome.CLOSED,
+    ],
+)
+def test_unconfirmed_publication_returns_503_and_correlation_id(
+    bundle: Path,
+    outcome: PublicationOutcome,
+) -> None:
+    publisher = MagicMock(spec=KafkaPredictionPublisher)
+    publisher.publish.side_effect = PublicationError(outcome)
+    with TestClient(create_app(bundle=bundle, publisher=publisher)) as client:
+        response = client.post("/v1/eta", json=PAYLOAD)
+        assert response.status_code == 503
+        assert response.headers["X-TripML-Publication"] == "unconfirmed"
+        details = response.json()["detail"]
+        assert details["prediction_id"] == str(publisher.publish.call_args.args[0].prediction_id)
+        assert details["outcome"] == outcome.value
+        assert details["delivery_unknown"] == (
+            outcome in {PublicationOutcome.FAILED, PublicationOutcome.TIMEOUT}
+        )
+        metrics = client.get("/metrics").text
+        assert f'tripml_prediction_publication_total{{outcome="{outcome.value}"}} 1.0' in metrics
+        assert "tripml_feature_fallback_total 0.0" in metrics
+
+
+def test_owned_publisher_is_closed_and_redis_cleanup_survives_flush_failure(
+    bundle: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    publisher = MagicMock(spec=KafkaPredictionPublisher)
+    publisher.close.side_effect = RuntimeError("flush failed")
+    store = MagicMock(spec=RedisFeatureStore)
+    monkeypatch.setattr(KafkaPredictionPublisher, "from_settings", lambda _settings: publisher)
+    monkeypatch.setattr(RedisFeatureStore, "from_settings", lambda _settings: store)
+    settings = PlatformSettings(
+        publication=PublicationSettings(bootstrap_servers="broker:9092"),
+        serving=ServingSettings(redis_url=SecretStr("redis://localhost")),
+    )
+    with (
+        pytest.raises(RuntimeError, match="flush failed"),
+        TestClient(create_app(settings, bundle=bundle)) as client,
+    ):
+        assert client.get("/readyz").json()["publication_mode"] == "acknowledged"
+    publisher.close.assert_called_once()
+    store.close.assert_called_once()
 
 
 @pytest.mark.parametrize(

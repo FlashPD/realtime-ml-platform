@@ -124,6 +124,25 @@ class TrackingSettings(ImmutableModel):
     production_alias: str = "production"
 
 
+class PublicationSettings(ImmutableModel):
+    bootstrap_servers: str | None = Field(default=None, min_length=1)
+    topic: str = Field(default="predictions", min_length=1, max_length=249, pattern=r"^[\w.-]+$")
+    delivery_timeout_ms: int = Field(default=1000, ge=1, le=30_000)
+    ack_timeout_seconds: float = Field(default=1.5, gt=0, le=30, allow_inf_nan=False)
+    shutdown_timeout_seconds: float = Field(default=2, gt=0, le=30, allow_inf_nan=False)
+    queue_max_messages: PositiveInt = 10_000
+
+    @model_validator(mode="after")
+    def publication_options_are_consistent(self) -> Self:
+        if self.topic in {".", ".."} or not self.topic.isascii():
+            raise ValueError("topic must be an ASCII Kafka topic name other than . or ..")
+        if self.bootstrap_servers is not None and not self.bootstrap_servers.strip():
+            raise ValueError("bootstrap_servers must not be blank")
+        if self.ack_timeout_seconds < self.delivery_timeout_ms / 1000:
+            raise ValueError("ack timeout must be at least the producer delivery timeout")
+        return self
+
+
 class PlatformSettings(BaseSettings):
     """Root settings object. Environment variables take precedence over YAML."""
 
@@ -141,6 +160,7 @@ class PlatformSettings(BaseSettings):
     ingestion: IngestionSettings = Field(default_factory=IngestionSettings)
     lineage: LineageSettings = Field(default_factory=LineageSettings)
     tracking: TrackingSettings = Field(default_factory=TrackingSettings)
+    publication: PublicationSettings = Field(default_factory=PublicationSettings)
 
     @classmethod
     def settings_customise_sources(

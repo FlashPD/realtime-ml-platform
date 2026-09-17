@@ -47,3 +47,10 @@ tracking:
   experiment_name: tripml-training
   registered_model_name: tripml-trip-duration
   production_alias: production
+
+publication:
+  topic: predictions
+  delivery_timeout_ms: 1000
+  ack_timeout_seconds: 1.5
+  shutdown_timeout_seconds: 2
+  queue_max_messages: 10000

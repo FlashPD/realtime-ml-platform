@@ -31,6 +31,7 @@ from starlette.middleware.base import RequestResponseEndpoint
 
 from tripml.contracts import ETARequest, FeatureValue, Prediction, PromotionOutcome
 from tripml.online_features import FeatureLookup, LookupOutcome, OnlineFeatures, RedisFeatureStore
+from tripml.publication import KafkaPredictionPublisher, PublicationError, PublicationOutcome
 from tripml.settings import PlatformSettings
 from tripml.tracking import create_client
 from tripml.training import STATIC_FEATURES, STREAMING_FEATURES, TrainingRunReport
@@ -221,12 +222,14 @@ def create_app(
     bundle: Path | None = None,
     model_loader: Callable[[], ServingModel] | None = None,
     feature_store: RedisFeatureStore | None = None,
+    publisher: KafkaPredictionPublisher | None = None,
 ) -> FastAPI:
     """Build an isolated app; loading failure aborts startup and never reports readiness."""
 
     active_settings = settings or PlatformSettings()
     model: ServingModel | None = None
     store = feature_store
+    sink = publisher
     registry = CollectorRegistry()
     requests = Counter(
         "tripml_prediction_requests", "Prediction HTTP responses", ["status"], registry=registry
@@ -236,6 +239,18 @@ def create_app(
     )
     lookups = Counter(
         "tripml_feature_lookup", "Online feature lookups by outcome", ["outcome"], registry=registry
+    )
+    publications = Counter(
+        "tripml_prediction_publication",
+        "Publication results observed by HTTP requests",
+        ["outcome"],
+        registry=registry,
+    )
+    publication_latency = Histogram(
+        "tripml_prediction_publication_duration_seconds",
+        "Time waiting for prediction delivery",
+        buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5),
+        registry=registry,
     )
     feature_age = Histogram(
         "tripml_feature_age_seconds",
@@ -252,7 +267,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        nonlocal model, store
+        nonlocal model, store, sink
         del app
         if model_loader is not None:
             model = model_loader()
@@ -268,12 +283,19 @@ def create_app(
                 ):
                     raise ServingError("online features require 900/3600-second windows")
                 store = RedisFeatureStore.from_settings(active_settings.serving)
+            if sink is None and active_settings.publication.bootstrap_servers is not None:
+                sink = KafkaPredictionPublisher.from_settings(active_settings.publication)
             yield
         finally:
             model = None
-            if store is not None and feature_store is None:
-                store.close()
-                store = None
+            try:
+                if sink is not None and publisher is None:
+                    sink.close()
+                    sink = None
+            finally:
+                if store is not None and feature_store is None:
+                    store.close()
+                    store = None
 
     app = FastAPI(title="TripML Prediction API", version="0.1.0", lifespan=lifespan)
 
@@ -319,6 +341,7 @@ def create_app(
             "model_version": model.model_version,
             "streaming_model_version": model.streaming_version,
             "registry_version": model.registry_version,
+            "publication_mode": "acknowledged" if sink is not None else "disabled",
         }
 
     @app.get("/metrics", include_in_schema=False)
@@ -326,7 +349,7 @@ def create_app(
         return Response(generate_latest(registry), headers={"Content-Type": CONTENT_TYPE_LATEST})
 
     @app.post("/v1/eta", response_model=Prediction)
-    def predict(request: ETARequest) -> Prediction:
+    def predict(request: ETARequest, response: Response) -> Prediction:
         if model is None:
             raise HTTPException(status_code=503, detail="model is not ready")
         try:
@@ -342,6 +365,38 @@ def create_app(
         except Exception as error:
             logger.exception("prediction failed")
             raise HTTPException(status_code=503, detail="prediction is unavailable") from error
+        if sink is None:
+            publications.labels(outcome=PublicationOutcome.DISABLED.value).inc()
+            response.headers["X-TripML-Publication"] = "disabled"
+        else:
+            started = perf_counter()
+            try:
+                sink.publish(prediction)
+            except Exception as error:
+                outcome = (
+                    error.outcome
+                    if isinstance(error, PublicationError)
+                    else PublicationOutcome.FAILED
+                )
+                publications.labels(outcome=outcome.value).inc()
+                raise HTTPException(
+                    status_code=503,
+                    detail={
+                        "message": "prediction publication was not confirmed",
+                        "prediction_id": str(prediction.prediction_id),
+                        "outcome": outcome.value,
+                        "delivery_unknown": outcome
+                        not in {
+                            PublicationOutcome.QUEUE_FULL,
+                            PublicationOutcome.CLOSED,
+                        },
+                    },
+                    headers={"X-TripML-Publication": "unconfirmed"},
+                ) from error
+            finally:
+                publication_latency.observe(perf_counter() - started)
+            publications.labels(outcome=PublicationOutcome.ACKNOWLEDGED.value).inc()
+            response.headers["X-TripML-Publication"] = "acknowledged"
         if prediction.feature_fallback:
             fallbacks.inc()
         return prediction
