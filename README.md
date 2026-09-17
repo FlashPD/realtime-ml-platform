@@ -6,10 +6,10 @@ point-in-time-correct features, event-time stream processing, training/serving p
 model promotion, low-latency serving, closed-loop monitoring, and reproducible operations on
 Kubernetes.
 
-> **Status:** Point-in-time batch feature milestone. The package, contracts, CI gates,
+> **Status:** Reproducible training milestone. The package, contracts, CI gates,
 > bounded-memory bronze-to-silver ingestion, durable PostgreSQL lineage, Airflow 3 orchestration,
-> and leakage-safe dbt-duckdb gold features now run in the local kind profile. Model training and
-> promotion gates are next.
+> leakage-safe dbt-duckdb gold features, deterministic model comparison, and explicit promotion
+> gates are implemented. MLflow tracking and model registration are next.
 
 ## Intended architecture
 
@@ -36,6 +36,12 @@ The complete design, delivery phases, service objectives, and acceptance criteri
 ## Quick start
 
 Requires Python 3.12.
+
+On macOS, LightGBM also requires the OpenMP runtime:
+
+```bash
+brew install libomp
+```
 
 ```bash
 python3.12 -m venv .venv
@@ -121,6 +127,27 @@ The tested table is atomically published to
 output checksums, row counts, window configuration, configuration fingerprint, feature model
 version, and build time. See
 [ADR-0005](docs/adr/0005-point-in-time-gold-features.md) for the event-ledger window design.
+
+## Model training and promotion gate
+
+After building every configured training and holdout month, train the baseline and both model
+candidates:
+
+```bash
+make train
+```
+
+The run compares a hierarchical median baseline, a static-feature LightGBM model, and a LightGBM
+model augmented with rolling zone features. All models use the same held-out month. The streaming
+candidate is promoted only when it satisfies the configured MAE improvement, distance-bucket
+calibration, and single-row inference-latency gates; an existing production-model comparison is
+also enforced when production metrics are supplied.
+
+Each content-addressed run under `artifacts/training/<run-id>/` contains the native LightGBM model
+files, serialized baseline, evaluation report, input checksums, artifact checksums, promotion
+decision, and generated model card. Repeating an identical run reuses that immutable bundle. See
+[ADR-0006](docs/adr/0006-reproducible-training-and-promotion.md) for the evaluation and artifact
+boundary.
 
 ## Airflow orchestration
 

@@ -43,6 +43,9 @@ def _parser() -> argparse.ArgumentParser:
     )
     build.add_argument("--month", required=True, help="Target month in YYYY-MM format")
     build.add_argument("--config", type=Path, help="Optional YAML configuration path")
+
+    train = commands.add_parser("train", help="Train, evaluate, and gate model candidates")
+    train.add_argument("--config", type=Path, help="Optional YAML configuration path")
     return parser
 
 
@@ -82,6 +85,20 @@ def _build_features(month_value: str, config_path: Path | None) -> int:
     return 0
 
 
+def _train(config_path: Path | None) -> int:
+    try:
+        from tripml.training import train_models
+    except (ImportError, OSError) as error:
+        raise RuntimeError(
+            "training dependencies are unavailable; install the 'training' extra and, "
+            "on macOS, Homebrew libomp"
+        ) from error
+
+    report = train_models(load_settings(config_path))
+    print(json.dumps(report.model_dump(mode="json"), indent=2, sort_keys=True))
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "config" and args.config_command == "validate":
@@ -92,6 +109,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _ingest(args.month, args.config, args.source)
     if args.command == "features" and args.features_command == "build":
         return _build_features(args.month, args.config)
+    if args.command == "train":
+        return _train(args.config)
     raise AssertionError("unreachable command")
 
 

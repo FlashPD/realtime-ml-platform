@@ -43,6 +43,9 @@ class TrainingSettings(ImmutableModel):
     train_months: tuple[str, ...] = ("2024-01", "2024-02", "2024-03")
     holdout_month: str = "2024-04"
     target: Literal["trip_duration_seconds"] = "trip_duration_seconds"
+    artifact_root: Path = Path("artifacts/training")
+    min_training_rows: PositiveInt = 1_000
+    min_holdout_rows: PositiveInt = 100
     model: ModelSettings = Field(default_factory=ModelSettings)
 
     @model_validator(mode="after")

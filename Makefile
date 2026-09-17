@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help install lint format typecheck test check contracts ingest features tools helm-lint cluster cluster-test cluster-status airflow-password airflow-ui cluster-delete
+.PHONY: help install lint format typecheck test check contracts ingest features train tools helm-lint cluster cluster-test cluster-status airflow-password airflow-ui cluster-delete
 
 PYTHON ?= python3.12
 
@@ -37,6 +37,9 @@ ingest: ## Ingest a TLC month (MONTH=YYYY-MM)
 features: ## Build point-in-time gold features (MONTH=YYYY-MM)
 	@test -n "$(MONTH)" || (echo "MONTH is required (example: make features MONTH=2024-01)" && exit 2)
 	$(PYTHON) -m tripml features build --month "$(MONTH)"
+
+train: ## Train, compare, and promotion-gate model candidates
+	$(PYTHON) -m tripml train
 
 tools: ## Install pinned kind and Helm binaries into .tools/bin
 	./scripts/bootstrap-tools.sh all

@@ -7,6 +7,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from tripml import training as training_module
 from tripml.cli import main
 from tripml.contracts import CONTRACTS
 from tripml.features import FeatureBuildReport
@@ -132,3 +133,20 @@ def test_feature_build_prints_machine_readable_report(
 
     assert exit_code == 0
     assert output["row_count"] == 42
+
+
+def test_train_prints_machine_readable_report(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FakeReport:
+        def model_dump(self, *, mode: str) -> dict[str, object]:
+            assert mode == "json"
+            return {"run_id": "0123456789abcdef", "outcome": "promote"}
+
+    monkeypatch.setattr(training_module, "train_models", lambda *_args, **_kwargs: FakeReport())
+
+    exit_code = main(["train"])
+    output = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert output["run_id"] == "0123456789abcdef"
