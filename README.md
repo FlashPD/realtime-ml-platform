@@ -6,14 +6,15 @@ point-in-time-correct features, event-time stream processing, training/serving p
 model promotion, low-latency serving, closed-loop monitoring, and reproducible operations on
 Kubernetes.
 
-> **Status:** Acknowledged prediction-publication milestone. The package, contracts, CI gates,
+> **Status:** Kubernetes serving milestone. The package, contracts, CI gates,
 > bounded-memory bronze-to-silver ingestion, durable PostgreSQL lineage, Airflow 3 orchestration,
 > leakage-safe dbt-duckdb gold features, deterministic model comparison, and explicit promotion
 > gates are implemented. MLflow tracking, conditional registration, and production-alias protection
 > are also complete. The prediction API selects the verified streaming model when Redis snapshots
 > pass event-time checks, with explicit static fallback, health endpoints, and Prometheus metrics.
 > Configured prediction publication now waits for Redpanda acknowledgment before HTTP success.
-> The stream producer, ground-truth joiner, and serving deployment are still pending.
+> Serving now has a non-root image, Helm deployment, health probes, topic provisioning, and an
+> optional CPU HPA. The stream producer, ground-truth joiner, and measured load objectives remain pending.
 
 ## Intended architecture
 
@@ -60,7 +61,8 @@ showcase run has measured the production-shaped objectives yet.
 | Initial prediction API | Verified MLflow or local-bundle loading, native static-model inference, New York calendar parity, explicit fallback provenance, health/readiness, Prometheus metrics, and a training-to-registry-to-HTTP integration test |
 | Online-feature serving | Versioned zone-role Redis keys, validated exclusive-end snapshots, streaming inference, socket timeouts without retries, lookup-outcome metrics, static degradation, and a real-Redis integration test in CI |
 | Prediction publication | JSON contract events keyed by trip ID, broker acknowledgment before HTTP success, idempotent Kafka producer, bounded queue/waits, delivery metrics, and a real HTTP-to-Redpanda round-trip test in CI |
-| Engineering documentation | Data card and ten ADRs covering infrastructure, ingestion, orchestration, feature correctness, reproducible promotion decisions, registry safety, serving, and delivery semantics |
+| Kubernetes serving | Non-root image, opt-in Helm deployment, registry/Redis/broker wiring, idempotent topic provisioning, resource limits, probes, rolling updates, optional CPU HPA, and an isolated kind smoke test |
+| Engineering documentation | Data card and eleven ADRs covering infrastructure, ingestion, orchestration, feature correctness, reproducible promotion decisions, registry safety, serving, delivery semantics, and deployment |
 
 ### Remaining
 
@@ -69,14 +71,14 @@ integration, and documentation. They are ranges rather than deadlines.
 
 | Priority | Workstream | Definition of done | Estimate |
 |---:|---|---|---:|
-| 1 | Complete prediction service | Authentication for any operator actions, Helm deployment, and HPA | 3–5 days |
+| 1 | Validate serving under load | Benchmark latency and degradation, exercise CPU HPA, and add request-rate scaling with monitoring; authenticate any future operator endpoints | 1–2 days |
 | 2 | Event replay and stream processor | Event-time replayer, registered broker schemas, Bytewax windows and watermarks, late-event policy, Redis writes, checkpoint recovery, and service metrics | 6–8 days |
 | 3 | Offline/online feature parity | Replay a fixture day, compare stream outputs with gold, report mismatch rate and maximum difference, and fail on skew | 1–2 days |
 | 4 | Closed-loop evaluation | Prediction/completion joiner, durable error records, live MAE and coverage, Evidently drift report, and guarded retraining trigger | 4–6 days |
 | 5 | Observability and integration hardening | Prometheus, Grafana, alerts, CI values profile, kind end-to-end workflow, dependency/image scanning, and serving load test | 4–6 days |
 | 6 | Showcase and failure scenarios | Resumable harness, eight planned fault scenarios, objective assertions, raw exports, generated evidence README, and safe teardown | 6–8 days |
 | 7 | Portfolio release polish | Runbooks, measured headline results, architecture and model evidence links, final limitations review, clean-laptop reproduction, and tagged release | 2–3 days |
-|  | **Full remaining scope** | **Everything in the original architecture and acceptance plan** | **26–38 days** |
+|  | **Full remaining scope** | **Everything in the original architecture and acceptance plan** | **24–35 days** |
 
 ### Calendar view
 
@@ -84,7 +86,7 @@ integration, and documentation. They are ranges rather than deadlines.
 |---|---|---:|
 | Batch-serving portfolio release | Serving API on kind, basic dashboards, and a real-data model comparison | 7–11 engineer-days, roughly 1.5–2.5 full-time weeks |
 | Differentiated streaming release | Batch-serving release plus replay, event-time features, recovery, and offline/online parity | 15–21 engineer-days, roughly 3–4.5 full-time weeks |
-| Full planned platform | Closed-loop monitoring, all failure scenarios, complete evidence export, and release polish | 26–38 engineer-days, roughly 5–8 full-time weeks |
+| Full planned platform | Closed-loop monitoring, all failure scenarios, complete evidence export, and release polish | 24–35 engineer-days, roughly 5–7 full-time weeks |
 
 At approximately 15 hours per week, the full planned platform is roughly 3.5–5 months. The main
 schedule risks are real-data performance tuning, Bytewax recovery behavior, Kubernetes resource
@@ -290,7 +292,7 @@ TRIPML_TEST_REDIS_URL='redis://127.0.0.1:6379/15' \
 ```
 
 The static sibling has held-out evaluation metrics but is not independently promotion-gated. The
-stream producer, operator actions, and Kubernetes serving deployment remain pending. Lagged
+stream producer and operator actions remain pending. Lagged
 Redis snapshots have not yet passed offline/online parity tests. See
 [ADR-0008](docs/adr/0008-initial-prediction-api.md) for the original serving boundary and ADR-0009
 for the online read contract.
@@ -308,7 +310,8 @@ TRIPML_PUBLICATION__BOOTSTRAP_SERVERS=localhost:19092 tripml serve
 
 The local client uses plaintext Kafka, matching the private local Redpanda profile. Use a broker's
 advertised address reachable from the API process; a Kubernetes port-forward alone does not rewrite
-Kafka metadata. Serving deployment and external broker authentication are separate follow-up work.
+Kafka metadata. The serving chart uses internal service addresses; external broker authentication
+is separate follow-up work.
 
 Every successful request in this mode has received a broker delivery acknowledgment. The message is
 the same `Prediction` JSON returned over HTTP, keyed by UTF-8 `trip_id`, with schema-version and
@@ -340,6 +343,64 @@ TRIPML_TEST_KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:19092 \
 ```
 
 See [ADR-0010](docs/adr/0010-acknowledged-prediction-publication.md) for the delivery boundary.
+
+### Deploying the API on kind
+
+Serving is disabled during the initial infrastructure install because a production model does not
+exist yet. Bring the infrastructure up to date with `make cluster`, then run the training workflow
+against **the cluster's MLflow server** (for example through the Airflow training DAG) until a model
+passes the promotion gate. A model registered in the default host-local SQLite store is not visible
+to cluster serving.
+
+```bash
+make serving-deploy
+make serving-ui       # localhost:8000; runs until interrupted
+```
+
+The deployment command builds and loads an image tagged with its Docker image ID, preserves prior
+Helm overrides, enables serving, waits for readiness, and runs a prediction smoke test. Helm rolls
+back a failed rollout. A missing or invalid production model prevents the new pod from becoming
+ready. An init container creates the configured `predictions` topic or verifies its partition and
+replica counts; it does not modify an incompatible existing topic. Serving uses cluster MLflow,
+Redis credentials from the existing Secret, and acknowledged publication to cluster Redpanda.
+The smoke test publishes a real event with trip ID `helm-serving-smoke`, which evaluation consumers
+must exclude from business metrics.
+
+The API runs as UID 10001 with a read-only root filesystem, a writable temporary volume, no service
+account token, and dropped Linux capabilities. Startup/readiness probes call `/readyz`; liveness
+calls `/healthz`. The Service is internal-only. Model changes require a rolling restart after the
+registry alias changes. There is no unauthenticated HTTP reload endpoint.
+
+CPU autoscaling is optional and requires an available Metrics Server. For **local kind only**, this
+pinned upstream chart can provide it; the kubelet TLS exception is specific to the local cluster:
+
+```bash
+.tools/bin/helm upgrade --install metrics-server metrics-server \
+  --repo https://kubernetes-sigs.github.io/metrics-server --version 3.13.0 \
+  --kube-context kind-tripml --namespace kube-system \
+  --set 'args[0]=--kubelet-insecure-tls' --wait --timeout 3m
+TRIPML_SERVING_AUTOSCALING=true make serving-deploy
+```
+
+The HPA defaults to 1–3 replicas at 70% of requested CPU, with a five-minute scale-down stabilization
+window. With HPA enabled, the chart omits Deployment `replicas` so upgrades do not reset its target.
+The deployment command checks metrics availability before enabling it. Scaling behavior under load,
+request-rate autoscaling, and latency objectives have not yet been measured. Prometheus scrape
+annotations are included; a Prometheus installation and ServiceMonitor remain observability work.
+
+An optional kind test seeds a synthetic model into a temporary MLflow deployment, installs the
+serving chart in the same temporary namespace, and verifies an acknowledged HTTP prediction. It
+reads the existing local platform's Redis credential, reuses its Redis and Redpanda services, and
+removes its namespace and unique broker topic afterward. It never moves the platform registry alias:
+
+```bash
+docker build -f docker/serving/Dockerfile -t tripml-serving:check .
+.tools/bin/kind load docker-image tripml-serving:check --name tripml
+TRIPML_TEST_KIND_CONTEXT=kind-tripml TRIPML_TEST_SERVING_IMAGE=tripml-serving:check \
+  pytest tests/e2e/test_serving_kind.py --no-cov
+```
+
+See [ADR-0011](docs/adr/0011-kubernetes-serving-deployment.md) for deployment and validation boundaries.
 
 ## Airflow orchestration
 

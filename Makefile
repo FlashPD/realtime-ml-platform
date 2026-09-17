@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help install lint format typecheck test check contracts ingest features train serve tools helm-lint cluster cluster-test cluster-status airflow-password airflow-ui mlflow-ui cluster-delete
+.PHONY: help install lint format typecheck test check contracts ingest features train serve tools helm-lint cluster cluster-test cluster-status airflow-password airflow-ui mlflow-ui serving-deploy serving-ui cluster-delete
 
 PYTHON ?= python3.12
 
@@ -68,6 +68,12 @@ airflow-ui: ## Forward the local Airflow UI to http://localhost:8080
 
 mlflow-ui: ## Forward the local MLflow UI to http://localhost:5000
 	./scripts/cluster.sh mlflow-ui
+
+serving-deploy: ## Build and deploy serving after a production model exists in cluster MLflow
+	./scripts/cluster.sh serving-deploy
+
+serving-ui: ## Forward the prediction API to http://localhost:8000
+	./scripts/cluster.sh serving-ui
 
 cluster-delete: ## Delete the local kind cluster and all of its data
 	./scripts/cluster.sh delete

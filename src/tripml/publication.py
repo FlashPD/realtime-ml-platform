@@ -8,10 +8,54 @@ from threading import Event, Lock, Thread
 
 from confluent_kafka import KafkaError, KafkaException, Message, Producer
 
+# NewTopic is a documented public API but lacks an explicit typed re-export upstream.
+from confluent_kafka.admin import AdminClient, NewTopic  # type: ignore[attr-defined]
+
 from tripml.contracts import Prediction
 from tripml.settings import PublicationSettings
 
 logger = logging.getLogger(__name__)
+
+
+def ensure_prediction_topic(
+    settings: PublicationSettings,
+    *,
+    partitions: int = 3,
+    replication_factor: int = 1,
+    client: AdminClient | None = None,
+) -> None:
+    """Provision the explicitly configured topic; never alter an existing topic's layout."""
+    if settings.bootstrap_servers is None:
+        raise ValueError("bootstrap_servers is required for topic provisioning")
+    if partitions < 1 or replication_factor < 1:
+        raise ValueError("partitions and replication_factor must be positive")
+    active = client or AdminClient({"bootstrap.servers": settings.bootstrap_servers})
+    metadata = active.list_topics(timeout=10)
+    if settings.topic not in metadata.topics:
+        try:
+            active.create_topics(
+                [
+                    NewTopic(
+                        settings.topic,
+                        num_partitions=partitions,
+                        replication_factor=replication_factor,
+                    )
+                ],
+                request_timeout=10,
+            )[settings.topic].result(timeout=10)
+        except KafkaException as error:
+            if error.args[0].code() != KafkaError.TOPIC_ALREADY_EXISTS:
+                raise
+        metadata = active.list_topics(timeout=10)
+    topic = metadata.topics.get(settings.topic)
+    if topic is None or topic.error is not None:
+        raise RuntimeError("prediction topic metadata is unavailable")
+    if len(topic.partitions) != partitions or any(
+        len(item.replicas) != replication_factor for item in topic.partitions.values()
+    ):
+        raise RuntimeError(
+            "existing prediction topic does not match the requested partition/replica layout"
+        )
 
 
 class PublicationOutcome(StrEnum):

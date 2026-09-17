@@ -17,6 +17,21 @@ from tripml.ingestion import PartitionQualityReport
 from tripml.lineage import PostgresLineageRepository
 
 
+def test_publication_topic_command_uses_explicit_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("TRIPML_PUBLICATION__BOOTSTRAP_SERVERS", "broker:9092")
+    with patch("tripml.publication.ensure_prediction_topic") as provision:
+        assert (
+            main(["publication", "ensure-topic", "--partitions", "6", "--replication-factor", "3"])
+            == 0
+        )
+    assert provision.call_args.args[0].bootstrap_servers == "broker:9092"
+    assert provision.call_args.kwargs == {"partitions": 6, "replication_factor": 3}
+    assert "Prediction topic ready: predictions" in capsys.readouterr().out
+
+
 def test_serve_passes_configuration_and_bind_options(tmp_path: Path) -> None:
     bundle = tmp_path / "bundle"
     config = tmp_path / "config.yaml"

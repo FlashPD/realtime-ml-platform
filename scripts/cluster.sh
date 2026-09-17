@@ -9,6 +9,7 @@ release_name="${TRIPML_RELEASE_NAME:-tripml}"
 credentials_secret="tripml-infra-credentials"
 airflow_image="tripml-airflow:0.1.0"
 mlflow_image="tripml-mlflow:0.1.0"
+serving_image=""
 postgres_username="tripml"
 airflow_database="${TRIPML_AIRFLOW_DATABASE:-airflow}"
 mlflow_database="${TRIPML_MLFLOW_DATABASE:-mlflow}"
@@ -90,6 +91,49 @@ build_mlflow_image() {
   "${tool_directory}/kind" load docker-image "${mlflow_image}" --name "${cluster_name}"
 }
 
+build_serving_image() {
+  local image_id
+  docker build --file "${repository_root}/docker/serving/Dockerfile" \
+    --tag tripml-serving:build "${repository_root}"
+  image_id="$(docker image inspect tripml-serving:build --format '{{.Id}}')"
+  serving_image="tripml-serving:${image_id#sha256:}"
+  docker tag tripml-serving:build "${serving_image}"
+  "${tool_directory}/kind" load docker-image "${serving_image}" --name "${cluster_name}"
+}
+
+deploy_serving() {
+  require_command docker
+  require_command kubectl
+  "${repository_root}/scripts/bootstrap-tools.sh" all
+  local autoscaling="${TRIPML_SERVING_AUTOSCALING:-false}"
+  if [[ "${autoscaling}" != true && "${autoscaling}" != false ]]; then
+    echo "TRIPML_SERVING_AUTOSCALING must be true or false" >&2
+    exit 2
+  fi
+  "${tool_directory}/helm" status "${release_name}" --kube-context "kind-${cluster_name}" \
+    --namespace "${namespace}" >/dev/null
+  if [[ "${autoscaling}" == true ]]; then
+    kubectl --context "kind-${cluster_name}" wait apiservice/v1beta1.metrics.k8s.io \
+      --for=condition=Available --timeout=30s
+  fi
+  build_serving_image
+  "${tool_directory}/helm" upgrade "${release_name}" "${repository_root}/deploy/helm/tripml" \
+    --kube-context "kind-${cluster_name}" --namespace "${namespace}" \
+    --reset-then-reuse-values \
+    --set serving.enabled=true \
+    --set-string serving.image.tag="${serving_image#*:}" \
+    --set serving.autoscaling.enabled="${autoscaling}" \
+    --wait --timeout 10m --rollback-on-failure
+  "${tool_directory}/helm" test "${release_name}" --kube-context "kind-${cluster_name}" \
+    --namespace "${namespace}" --filter "name=${release_name}-tripml-test-serving" --logs --timeout 3m
+}
+
+forward_serving() {
+  require_command kubectl
+  kubectl --context "kind-${cluster_name}" --namespace "${namespace}" \
+    port-forward "service/${release_name}-tripml-serving" 8000:8000
+}
+
 create_cluster() {
   require_command docker
   require_command kubectl
@@ -115,6 +159,7 @@ create_cluster() {
     --kube-context "kind-${cluster_name}" \
     --namespace "${namespace}" \
     --values "${repository_root}/deploy/helm/tripml/values-local.yaml" \
+    --reset-then-reuse-values \
     --set-string airflow.metadataDatabase="${airflow_database}" \
     --set-string mlflow.backendDatabase="${mlflow_database}" \
     --wait \
@@ -171,6 +216,8 @@ case "${1:-}" in
   airflow-password) show_airflow_password ;;
   airflow-ui) forward_airflow ;;
   mlflow-ui) forward_mlflow ;;
+  serving-deploy) deploy_serving ;;
+  serving-ui) forward_serving ;;
   delete) delete_cluster ;;
-  *) echo "Usage: $0 {create|test|status|airflow-password|airflow-ui|mlflow-ui|delete}" >&2; exit 2 ;;
+  *) echo "Usage: $0 {create|test|status|airflow-password|airflow-ui|mlflow-ui|serving-deploy|serving-ui|delete}" >&2; exit 2 ;;
 esac

@@ -1,5 +1,30 @@
 credentialsSecret: tripml-infra-credentials
 
+# Enable only after the registry has a promoted model. External service addresses are
+# optional; empty values resolve to this release's MLflow, Redis, and Redpanda services.
+serving:
+  enabled: false
+  image:
+    repository: tripml-serving
+    tag: 0.1.0
+  replicas: 1
+  trackingUri: ""
+  registeredModelName: tripml-trip-duration
+  productionAlias: production
+  redisHost: ""
+  bootstrapServers: ""
+  predictionTopic: predictions
+  topicPartitions: 3
+  topicReplicationFactor: 1
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: "1", memory: 1Gi}
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 70
+
 global:
   imagePullPolicy: IfNotPresent
   storageClass: standard
@@ -78,5 +103,5 @@ mlflow:
   backendDatabase: mlflow
   artifactBucket: tripml-mlflow
   resources:
-    requests: {cpu: 100m, memory: 256Mi}
-    limits: {cpu: "1", memory: 1Gi}
+    requests: {cpu: 100m, memory: 1Gi}
+    limits: {cpu: "1", memory: 2Gi}

@@ -2,8 +2,68 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["credentialsSecret", "global", "postgresql", "redis", "minio", "redpanda", "airflow", "mlflow"],
+  "required": ["credentialsSecret", "global", "postgresql", "redis", "minio", "redpanda", "airflow", "mlflow", "serving"],
   "properties": {
+    "serving": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "image", "replicas", "trackingUri", "registeredModelName", "productionAlias", "redisHost", "bootstrapServers", "predictionTopic", "topicPartitions", "topicReplicationFactor", "resources", "autoscaling"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "image": {"$ref": "#/$defs/image"},
+        "replicas": {"type": "integer", "minimum": 1},
+        "trackingUri": {"type": "string"},
+        "registeredModelName": {"type": "string", "minLength": 1},
+        "productionAlias": {"type": "string", "minLength": 1},
+        "redisHost": {"type": "string"},
+        "bootstrapServers": {"type": "string"},
+        "predictionTopic": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 249,
+          "pattern": "^[A-Za-z0-9_.-]+$",
+          "not": {"enum": [".", ".."]}
+        },
+        "topicPartitions": {"type": "integer", "minimum": 1},
+        "topicReplicationFactor": {"type": "integer", "minimum": 1},
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["requests", "limits"],
+          "properties": {
+            "requests": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["cpu", "memory"],
+              "properties": {
+                "cpu": {"type": "string", "pattern": "^[1-9][0-9]*m?$"},
+                "memory": {"type": "string", "pattern": "^[1-9][0-9]*(Mi|Gi)$"}
+              }
+            },
+            "limits": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["cpu", "memory"],
+              "properties": {
+                "cpu": {"type": "string", "pattern": "^[1-9][0-9]*m?$"},
+                "memory": {"type": "string", "pattern": "^[1-9][0-9]*(Mi|Gi)$"}
+              }
+            }
+          }
+        },
+        "autoscaling": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "minReplicas", "maxReplicas", "targetCPUUtilizationPercentage"],
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "minReplicas": {"type": "integer", "minimum": 1},
+            "maxReplicas": {"type": "integer", "minimum": 1},
+            "targetCPUUtilizationPercentage": {"type": "integer", "minimum": 1, "maximum": 100}
+          }
+        }
+      }
+    },
     "credentialsSecret": {"type": "string", "minLength": 1},
     "global": {
       "type": "object",

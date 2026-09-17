@@ -58,6 +58,14 @@ def _parser() -> argparse.ArgumentParser:
     )
     serve.add_argument("--host", default="127.0.0.1", help="Bind address (default: loopback)")
     serve.add_argument("--port", type=int, default=8000, help="HTTP port (default: 8000)")
+    publication = commands.add_parser("publication", help="Manage prediction publication resources")
+    publication_commands = publication.add_subparsers(dest="publication_command", required=True)
+    topic = publication_commands.add_parser(
+        "ensure-topic", help="Create or verify the prediction topic"
+    )
+    topic.add_argument("--config", type=Path, help="Optional YAML configuration path")
+    topic.add_argument("--partitions", type=int, default=3)
+    topic.add_argument("--replication-factor", type=int, default=1)
     return parser
 
 
@@ -143,6 +151,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             host=args.host,
             port=args.port,
         )
+        return 0
+    if args.command == "publication":
+        from tripml.publication import ensure_prediction_topic
+
+        settings = load_settings(args.config)
+        ensure_prediction_topic(
+            settings.publication,
+            partitions=args.partitions,
+            replication_factor=args.replication_factor,
+        )
+        print(f"Prediction topic ready: {settings.publication.topic}")
         return 0
     raise AssertionError("unreachable command")
 

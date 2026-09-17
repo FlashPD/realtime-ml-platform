@@ -5,14 +5,20 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from queue import Empty, Queue
 from threading import Event
+from types import SimpleNamespace
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from confluent_kafka import KafkaError, KafkaException
 
 from tripml.contracts import Prediction
-from tripml.publication import KafkaPredictionPublisher, PublicationError, PublicationOutcome
+from tripml.publication import (
+    KafkaPredictionPublisher,
+    PublicationError,
+    PublicationOutcome,
+    ensure_prediction_topic,
+)
 from tripml.settings import PublicationSettings
 
 
@@ -212,3 +218,59 @@ def test_shutdown_reports_unconfirmed_messages(caplog: pytest.LogCaptureFixture)
         active = KafkaPredictionPublisher(producer, PublicationSettings())
         active.close()
     assert "3 predictions without delivery confirmation" in caplog.text
+
+
+def _topic_metadata(partitions: int = 3) -> SimpleNamespace:
+    return SimpleNamespace(
+        topics={
+            "predictions": SimpleNamespace(
+                error=None,
+                partitions={index: SimpleNamespace(replicas=[0]) for index in range(partitions)},
+            )
+        }
+    )
+
+
+def test_topic_provisioning_creates_missing_topic_and_preserves_existing_layout() -> None:
+    client = MagicMock()
+    client.list_topics.side_effect = [
+        SimpleNamespace(topics={}),
+        _topic_metadata(),
+        _topic_metadata(),
+    ]
+    settings = PublicationSettings(bootstrap_servers="broker:9092")
+    ensure_prediction_topic(settings, client=client)
+    ensure_prediction_topic(settings, client=client)
+    client.create_topics.assert_called_once()
+    topic = client.create_topics.call_args.args[0][0]
+    assert (topic.topic, topic.num_partitions, topic.replication_factor) == ("predictions", 3, 1)
+
+
+def test_concurrent_topic_creation_is_tolerated_but_other_errors_propagate() -> None:
+    client = MagicMock()
+    settings = PublicationSettings(bootstrap_servers="broker:9092")
+    client.list_topics.side_effect = [SimpleNamespace(topics={}), _topic_metadata()]
+    future = client.create_topics.return_value.__getitem__.return_value
+    future.result.side_effect = KafkaException(KafkaError(KafkaError.TOPIC_ALREADY_EXISTS))
+    ensure_prediction_topic(settings, client=client)
+    client.list_topics.side_effect = [SimpleNamespace(topics={})]
+    future.result.side_effect = KafkaException(KafkaError(KafkaError.TOPIC_AUTHORIZATION_FAILED))
+    with pytest.raises(KafkaException):
+        ensure_prediction_topic(settings, client=client)
+
+
+@pytest.mark.parametrize("metadata", [SimpleNamespace(topics={}), _topic_metadata(1)])
+def test_topic_provisioning_rejects_missing_metadata_or_wrong_layout(
+    metadata: SimpleNamespace,
+) -> None:
+    client = MagicMock()
+    client.list_topics.return_value = metadata
+    with pytest.raises(RuntimeError):
+        ensure_prediction_topic(PublicationSettings(bootstrap_servers="broker:9092"), client=client)
+
+
+def test_topic_provisioning_requires_explicit_broker_and_positive_sizes() -> None:
+    with pytest.raises(ValueError, match="bootstrap_servers"):
+        ensure_prediction_topic(PublicationSettings())
+    with pytest.raises(ValueError, match="positive"):
+        ensure_prediction_topic(PublicationSettings(bootstrap_servers="broker:9092"), partitions=0)

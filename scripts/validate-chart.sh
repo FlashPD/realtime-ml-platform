@@ -17,11 +17,20 @@ if grep -Eq '^kind: Secret$' "${rendered_manifest}"; then
   exit 1
 fi
 
-for workload in postgresql redis minio redpanda airflow; do
+for workload in postgresql redis minio redpanda airflow mlflow; do
   if ! grep -q "app.kubernetes.io/component: ${workload}" "${rendered_manifest}"; then
     echo "Rendered chart is missing the ${workload} workload" >&2
     exit 1
   fi
 done
+
+"${helm_binary}" lint "${chart_directory}" --set serving.enabled=true \
+  --set serving.autoscaling.enabled=true
+"${helm_binary}" template tripml "${chart_directory}" --namespace tripml \
+  --set serving.enabled=true --set serving.autoscaling.enabled=true > "${rendered_manifest}"
+if ! grep -q '^kind: HorizontalPodAutoscaler$' "${rendered_manifest}"; then
+  echo "Serving autoscaling profile must render an HPA" >&2
+  exit 1
+fi
 
 echo "Chart lint and render checks passed"
