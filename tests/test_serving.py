@@ -10,8 +10,6 @@ from unittest.mock import MagicMock
 
 import lightgbm as lgb
 import numpy as np
-import pyarrow as pa
-import pyarrow.parquet as pq
 import pytest
 from fastapi.testclient import TestClient
 from mlflow import MlflowClient
@@ -19,7 +17,7 @@ from pydantic import SecretStr
 from redis import Redis
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
-from tripml.contracts import ETARequest, OnlineZoneWindowFeatures, Prediction, PromotionOutcome
+from tripml.contracts import ETARequest, OnlineZoneWindowFeatures, Prediction
 from tripml.online_features import RedisFeatureStore
 from tripml.publication import KafkaPredictionPublisher, PublicationError, PublicationOutcome
 from tripml.serving import (
@@ -31,18 +29,14 @@ from tripml.serving import (
     static_features,
 )
 from tripml.settings import (
-    IngestionSettings,
-    ModelSettings,
     PlatformSettings,
-    PromotionGateSettings,
     PublicationSettings,
     ServingSettings,
     StreamingSettings,
     TrackingSettings,
-    TrainingSettings,
 )
 from tripml.tracking import publish_training_report
-from tripml.training import STATIC_FEATURES, TrainingRunReport, train_models
+from tripml.training import STATIC_FEATURES, TrainingRunReport
 
 PAYLOAD = {
     "trip_id": "trip-123",
@@ -52,51 +46,6 @@ PAYLOAD = {
     "trip_distance_miles": 3.2,
     "passenger_count": 2,
 }
-
-
-@pytest.fixture(scope="module")
-def trained_report(tmp_path_factory: pytest.TempPathFactory) -> TrainingRunReport:
-    root = tmp_path_factory.mktemp("serving-training")
-    settings = PlatformSettings(
-        ingestion=IngestionSettings(data_root=root / "data"),
-        training=TrainingSettings(
-            train_months=("2024-01",),
-            holdout_month="2024-02",
-            artifact_root=root / "artifacts",
-            min_training_rows=100,
-            min_holdout_rows=50,
-            model=ModelSettings(num_leaves=15, learning_rate=0.1, n_estimators=40),
-        ),
-        promotion_gate=PromotionGateSettings(
-            max_bucket_calibration_error_pct=20, max_inference_p95_ms=1000
-        ),
-    )
-    for month, count in (("2024-01", 200), ("2024-02", 100)):
-        signal = np.arange(count) % 10
-        target = 300 + signal * 50
-        path = root / f"data/gold/yellow/month={month}/training_features.parquet"
-        path.parent.mkdir(parents=True)
-        pq.write_table(
-            pa.table(
-                {
-                    "pickup_zone_id": [161] * count,
-                    "dropoff_zone_id": [236] * count,
-                    "pickup_hour_of_week": [36] * count,
-                    "trip_distance_miles": [3.2] * count,
-                    "passenger_count": [2] * count,
-                    "pu_zone_trips_15m": signal,
-                    "pu_zone_mean_speed_15m": 10 + signal,
-                    "pu_zone_mean_duration_60m": target,
-                    "do_zone_trips_60m": signal * 2,
-                    "actual_duration_seconds": target,
-                    "feature_model_version": ["gold-features-v1"] * count,
-                }
-            ),
-            path,
-        )
-    report = train_models(settings)
-    assert report.promotion_decision.outcome is PromotionOutcome.PROMOTE
-    return report
 
 
 @pytest.fixture

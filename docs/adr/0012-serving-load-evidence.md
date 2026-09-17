@@ -63,3 +63,39 @@ real-data quality, feature parity, clustered latency, or autoscaling. Target CPU
 hardware, image/model provenance, dependency state, and the network path must accompany published
 capacity claims. Git/image provenance is not inferred from the client's checkout, which may differ
 from the server. CPU HPA exercise, request-rate scaling, and monitoring remain follow-up milestones.
+
+## Isolated resilience validation
+
+Extend validation with an opt-in `make benchmark-resilience OUTPUT=...` test and manually dispatched
+CI workflow. The suite owns disposable, loopback-addressed Redis and Redpanda containers, synthetic
+model artifacts, and a host API child process. It never reads platform credentials or changes the
+platform registry. Cleanup targets the container IDs returned by create, including anonymous volumes,
+and terminates/reaps the API subprocess. Container names have random suffixes; Docker bindings fail
+closed if another process claims a selected port before startup.
+
+Keep one API process alive across healthy load, Redis shutdown, Redis restart/reseed, broker shutdown,
+and broker restart. Require the expected feature-lookup metric deltas and health/readiness behavior.
+Available-service phases enforce zero measured errors and the default 50 ms P95 objective at
+100 requests/second. Online phases explicitly gate static fallback below 1%, matching architecture
+section 7.3, and retain fresh/unavailable lookup deltas. Redis outage requires all lookups unavailable
+and all responses static. A repeated local run observed one transient Redis timeout in each of two
+1,000-request online phases; a zero-fallback gate was stricter than the declared service objective.
+Retain that failed exploratory run rather than discard it or change the serving timeout to hide it.
+During broker outage, a failed raw benchmark is the expected result; the suite
+requires every measured request to return HTTP 503. Sequential warm-up remains visible and ungated,
+so this establishes recovery by the measured phase, not a precise recovery-time objective.
+
+After API shutdown, independently consume the topic to captured partition end offsets. Validate
+contract headers and keys and compare the SHA-256 of each normalized Prediction to the digest recorded
+from its HTTP response. Count acknowledgments by valid HTTP 200 responses and the acknowledgment
+header, including fallbacks flagged as feature-mode mismatches by a stricter benchmark. All
+acknowledged measured and warm-up predictions must appear, with no
+duplicate IDs or content mismatches. Predictions correlated with failed HTTP requests are separate
+ambiguous-delivery evidence, consistent with ADR-0010; do not infer exactly-once delivery.
+
+Retain per-scenario raw evidence, metrics, dependency logs/configuration, seeded snapshots, the native
+model bundle, and consumed events. Record source hashes for the locally launched server and image
+IDs for its dependencies. Upload evidence on CI failures as well as successes. The manual workflow
+keeps machine-dependent latency objectives out of routine pull-request checks. This suite uses
+synthetic features and explicitly reseeds Redis; it does not prove parity, stream recovery,
+representative model quality, Kubernetes performance, sustained capacity, or autoscaling.

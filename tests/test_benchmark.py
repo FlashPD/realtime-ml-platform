@@ -83,6 +83,7 @@ def test_benchmark_records_reproducible_evidence_and_excludes_warmup(tmp_path: P
     assert [sample["sequence"] for sample in samples] == list(range(5))
     assert all(sample["latency_ms"] >= sample["http_latency_ms"] for sample in samples)
     assert all(sample["prediction_id"] for sample in samples)
+    assert all(len(sample["prediction_sha256"]) == 64 for sample in samples)
     assert json.loads((output / "summary.json").read_text()) == report
     assert "**PASS**" in (output / "README.md").read_text()
     for name, digest in report["artifacts_sha256"].items():

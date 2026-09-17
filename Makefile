@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help install lint format typecheck test check contracts ingest features train serve benchmark tools helm-lint cluster cluster-test cluster-status airflow-password airflow-ui mlflow-ui serving-deploy serving-ui cluster-delete
+.PHONY: help install lint format typecheck test check contracts ingest features train serve benchmark benchmark-resilience tools helm-lint cluster cluster-test cluster-status airflow-password airflow-ui mlflow-ui serving-deploy serving-ui cluster-delete
 
 PYTHON ?= python3.12
 
@@ -46,6 +46,11 @@ serve: ## Serve production ETA predictions with optional Redis features
 
 benchmark: ## Benchmark serving (BENCHMARK_ARGS='--output artifacts/benchmarks/run ...')
 	$(PYTHON) -m tripml benchmark --requests-file examples/benchmark/requests.jsonl $(BENCHMARK_ARGS)
+
+benchmark-resilience: ## Test isolated serving failures and recovery (OUTPUT=new/evidence/path)
+	@test -n "$(OUTPUT)" || (echo "OUTPUT must name a new evidence directory" && exit 2)
+	TRIPML_TEST_SERVING_RESILIENCE=1 TRIPML_RESILIENCE_OUTPUT="$(OUTPUT)" \
+	  $(PYTHON) -m pytest tests/e2e/test_serving_resilience.py --no-cov
 
 tools: ## Install pinned kind and Helm binaries into .tools/bin
 	./scripts/bootstrap-tools.sh all

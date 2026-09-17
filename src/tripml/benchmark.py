@@ -65,6 +65,7 @@ class RequestSample(BaseModel):
     feature_fallback: bool | None = None
     model_version: str | None = None
     prediction_id: str | None = None
+    prediction_sha256: str | None = None
     publication: str | None = None
 
 
@@ -123,6 +124,9 @@ async def _request(
         else:
             prediction = Prediction.model_validate_json(response.content)
             sample.prediction_id = str(prediction.prediction_id)
+            sample.prediction_sha256 = hashlib.sha256(
+                prediction.model_dump_json().encode("utf-8")
+            ).hexdigest()
             sample.model_version = prediction.model_version
             sample.feature_fallback = prediction.feature_fallback
             if prediction.trip_id != payload.trip_id:

@@ -4,9 +4,20 @@ import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import numpy as np
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
-from tripml.contracts import OnlineZoneWindowFeatures
+from tripml.contracts import OnlineZoneWindowFeatures, PromotionOutcome
+from tripml.settings import (
+    IngestionSettings,
+    ModelSettings,
+    PlatformSettings,
+    PromotionGateSettings,
+    TrainingSettings,
+)
+from tripml.training import TrainingRunReport, train_models
 
 os.environ.setdefault(
     "AIRFLOW_HOME",
@@ -39,3 +50,53 @@ def online_snapshots() -> tuple[OnlineZoneWindowFeatures, ...]:
             ("dropoff", 236, "60m", 3600, 7),
         )
     )
+
+
+@pytest.fixture(scope="session")
+def trained_report(tmp_path_factory: pytest.TempPathFactory) -> TrainingRunReport:
+    # Keep fixture training independent of a developer's configured platform paths.
+    with pytest.MonkeyPatch.context() as isolated:
+        for key in tuple(os.environ):
+            if key.startswith("TRIPML_"):
+                isolated.delenv(key)
+        root = tmp_path_factory.mktemp("serving-training")
+        settings = PlatformSettings(
+            ingestion=IngestionSettings(data_root=root / "data"),
+            training=TrainingSettings(
+                train_months=("2024-01",),
+                holdout_month="2024-02",
+                artifact_root=root / "artifacts",
+                min_training_rows=100,
+                min_holdout_rows=50,
+                model=ModelSettings(num_leaves=15, learning_rate=0.1, n_estimators=40),
+            ),
+            promotion_gate=PromotionGateSettings(
+                max_bucket_calibration_error_pct=20, max_inference_p95_ms=1000
+            ),
+        )
+        for month, count in (("2024-01", 200), ("2024-02", 100)):
+            signal = np.arange(count) % 10
+            target = 300 + signal * 50
+            path = root / f"data/gold/yellow/month={month}/training_features.parquet"
+            path.parent.mkdir(parents=True)
+            pq.write_table(
+                pa.table(
+                    {
+                        "pickup_zone_id": [161] * count,
+                        "dropoff_zone_id": [236] * count,
+                        "pickup_hour_of_week": [36] * count,
+                        "trip_distance_miles": [3.2] * count,
+                        "passenger_count": [2] * count,
+                        "pu_zone_trips_15m": signal,
+                        "pu_zone_mean_speed_15m": 10 + signal,
+                        "pu_zone_mean_duration_60m": target,
+                        "do_zone_trips_60m": signal * 2,
+                        "actual_duration_seconds": target,
+                        "feature_model_version": ["gold-features-v1"] * count,
+                    }
+                ),
+                path,
+            )
+        report = train_models(settings)
+        assert report.promotion_decision.outcome is PromotionOutcome.PROMOTE
+        return report

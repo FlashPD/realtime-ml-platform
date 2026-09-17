@@ -15,7 +15,8 @@ Kubernetes.
 > Configured prediction publication now waits for Redpanda acknowledgment before HTTP success.
 > Serving now has a non-root image, Helm deployment, health probes, topic provisioning, and an
 > optional CPU HPA. A constant-arrival HTTP benchmark now exports request-level evidence and enforces
-> latency, error, overload, and serving-mode checks. Representative cluster load measurements, the
+> latency, error, overload, and serving-mode checks. An isolated resilience suite exercises Redis and
+> broker failures, recovery, and consumer readback. Representative cluster load measurements, the
 > stream producer, and the ground-truth joiner remain pending.
 
 ## Intended architecture
@@ -65,6 +66,7 @@ showcase run has measured the production-shaped objectives yet.
 | Prediction publication | JSON contract events keyed by trip ID, broker acknowledgment before HTTP success, idempotent Kafka producer, bounded queue/waits, delivery metrics, and a real HTTP-to-Redpanda round-trip test in CI |
 | Kubernetes serving | Non-root image, opt-in Helm deployment, registry/Redis/broker wiring, idempotent topic provisioning, resource limits, probes, rolling updates, optional CPU HPA, and an isolated kind smoke test |
 | Serving benchmark tooling | Constant-arrival load, bounded concurrency, explicit dropped arrivals, validated predictions and serving modes, objective exit codes, checksummed raw evidence, and failure-path tests |
+| Serving resilience harness | Disposable Redis/Redpanda, real HTTP and native-model inference, healthy online load, Redis/broker outages and recovery in one API process, metrics assertions, consumer readback, and manual CI evidence export |
 | Engineering documentation | Data card and twelve ADRs covering infrastructure, ingestion, orchestration, feature correctness, reproducible promotion decisions, registry safety, serving, delivery semantics, deployment, and load measurement |
 
 ### Remaining
@@ -453,6 +455,51 @@ unavailable and set `--expected-features static`; inspect its feature-lookup met
 failure cause. For recovery, restore that dependency and rerun with `--expected-features streaming`.
 The client never changes services or injects faults itself. Broker failure should produce a failed
 benchmark with HTTP errors because the API requires acknowledgment before success.
+
+To automate these scenarios with **disposable dependencies**, install the development extra, start
+Docker, and run:
+
+```bash
+make benchmark-resilience PYTHON=.venv/bin/python OUTPUT=artifacts/benchmarks/resilience-001
+```
+
+This opt-in test creates separate Redis and Redpanda containers on loopback-only ports, trains a
+small synthetic native-model bundle, and starts one host API process. It uses no existing platform
+credentials, services, model aliases, or topics. The same API process stays running through:
+
+| Scenario | Required behavior |
+|---|---|
+| Healthy dependencies | Acknowledged predictions, zero measured errors, P95 below 50 ms, static fallback below 1% |
+| Redis stopped | Static predictions with `unavailable` lookup metrics and acknowledged publication |
+| Redis restarted and snapshots reseeded | Streaming predictions resume without an API restart |
+| Broker stopped | All measured requests return HTTP 503; the API remains live and model-ready |
+| Broker restarted | Streaming predictions and acknowledged publication resume without an API restart |
+
+Each available-service phase sends 1,000 measured requests at 100 requests/second plus 20 warm-up
+requests. The broker-outage phase sends 10 requests at 5 requests/second, with no warm-up. Its raw
+benchmark is expected to fail; the suite passes that scenario only if every response is HTTP 503.
+The suite independently consumes the topic after API shutdown and checks every acknowledged
+prediction, including warm-up, against its response digest, trip key, model, fallback mode, and
+contract headers. Missing events, duplicate prediction IDs, or mismatched content fail validation.
+Events associated with unsuccessful HTTP requests are reported separately as ambiguous delivery.
+
+Online phases allow static fallback below the architecture's 1% objective while requiring every
+measured HTTP prediction to succeed. The suite checks that lookups are either fresh or unavailable;
+invalid/stale seeded features fail validation. A transient Redis timeout can therefore produce a
+valid, acknowledged fallback without making the run fail. The observed fallback rate remains in
+the evidence and reaches failure at 1%; the Redis-outage phase instead requires 100% static fallback
+and the `unavailable` metric cause. Redis timeout settings are unchanged by the harness.
+
+The top-level evidence README links to scenario reports, raw samples, server metrics, logs, native
+model artifacts, seeded snapshots, and consumer output. The summary includes container configuration,
+image IDs through Docker inspect exports, source hashes, and artifact checksums. The test removes its
+own containers and anonymous volumes in cleanup and retains evidence. A setup failure can leave
+partial diagnostics without a completed summary. The **Serving resilience evidence** GitHub Actions
+workflow runs the same suite on manual dispatch and uploads artifacts even if a check fails.
+
+These are synthetic host-to-container measurements. Snapshots are manually seeded and Redis is
+reseeded on recovery; the suite does not establish stream-processor correctness or recovery. It also
+does not establish real-data accuracy, in-cluster latency, sustained capacity, or HPA behavior.
 
 Record hardware, resource limits, model provenance, dependency state, and network path alongside
 the results. A host port-forward run includes that forwarding path and does not prove in-cluster
