@@ -1,6 +1,7 @@
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 from uuid import UUID
 
 import pyarrow as pa
@@ -14,6 +15,32 @@ from tripml.contracts import CONTRACTS
 from tripml.features import FeatureBuildReport
 from tripml.ingestion import PartitionQualityReport
 from tripml.lineage import PostgresLineageRepository
+
+
+def test_serve_passes_configuration_and_bind_options(tmp_path: Path) -> None:
+    bundle = tmp_path / "bundle"
+    config = tmp_path / "config.yaml"
+    config.write_text("serving:\n  p95_latency_objective_ms: 75\n", encoding="utf-8")
+    with patch("tripml.serving.create_app") as factory, patch("uvicorn.run") as run:
+        assert (
+            main(
+                [
+                    "serve",
+                    "--bundle",
+                    str(bundle),
+                    "--config",
+                    str(config),
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    "8001",
+                ]
+            )
+            == 0
+        )
+    assert factory.call_args.args[0].serving.p95_latency_objective_ms == 75
+    assert factory.call_args.kwargs == {"bundle": bundle}
+    run.assert_called_once_with(factory.return_value, host="127.0.0.1", port=8001)
 
 
 def test_config_validate_prints_validated_settings(capsys: pytest.CaptureFixture[str]) -> None:

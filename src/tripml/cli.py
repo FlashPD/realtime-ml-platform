@@ -51,6 +51,13 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Build the local model bundle without publishing it to MLflow",
     )
+    serve = commands.add_parser("serve", help="Serve ETA predictions from a verified model")
+    serve.add_argument("--config", type=Path, help="Optional YAML configuration path")
+    serve.add_argument(
+        "--bundle", type=Path, help="Use a local training bundle in development mode"
+    )
+    serve.add_argument("--host", default="127.0.0.1", help="Bind address (default: loopback)")
+    serve.add_argument("--port", type=int, default=8000, help="HTTP port (default: 8000)")
     return parser
 
 
@@ -126,6 +133,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _build_features(args.month, args.config)
     if args.command == "train":
         return _train(args.config, track=not args.no_track)
+    if args.command == "serve":
+        import uvicorn
+
+        from tripml.serving import create_app
+
+        uvicorn.run(
+            create_app(load_settings(args.config), bundle=args.bundle),
+            host=args.host,
+            port=args.port,
+        )
+        return 0
     raise AssertionError("unreachable command")
 
 

@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help install lint format typecheck test check contracts ingest features train tools helm-lint cluster cluster-test cluster-status airflow-password airflow-ui mlflow-ui cluster-delete
+.PHONY: help install lint format typecheck test check contracts ingest features train serve tools helm-lint cluster cluster-test cluster-status airflow-password airflow-ui mlflow-ui cluster-delete
 
 PYTHON ?= python3.12
 
@@ -40,6 +40,9 @@ features: ## Build point-in-time gold features (MONTH=YYYY-MM)
 
 train: ## Train, compare, and promotion-gate model candidates
 	$(PYTHON) -m tripml train
+
+serve: ## Serve the production bundle's static fallback on localhost:8000
+	$(PYTHON) -m tripml serve
 
 tools: ## Install pinned kind and Helm binaries into .tools/bin
 	./scripts/bootstrap-tools.sh all

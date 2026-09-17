@@ -6,11 +6,13 @@ point-in-time-correct features, event-time stream processing, training/serving p
 model promotion, low-latency serving, closed-loop monitoring, and reproducible operations on
 Kubernetes.
 
-> **Status:** Guarded model-registry milestone. The package, contracts, CI gates,
+> **Status:** Initial prediction API milestone. The package, contracts, CI gates,
 > bounded-memory bronze-to-silver ingestion, durable PostgreSQL lineage, Airflow 3 orchestration,
 > leakage-safe dbt-duckdb gold features, deterministic model comparison, and explicit promotion
 > gates are implemented. MLflow tracking, conditional registration, and production-alias protection
-> are also complete; the prediction service is next.
+> are also complete. A local prediction API now serves the verified static model from the production
+> bundle with explicit fallback metadata, health endpoints, and Prometheus metrics. Online features,
+> prediction publication, and the serving deployment are next.
 
 ## Intended architecture
 
@@ -54,7 +56,8 @@ showcase run has measured the production-shaped objectives yet.
 | Reproducible training core | Hierarchical median baseline, static and streaming-feature LightGBM candidates, held-out metrics, calibration and latency gates, native model artifacts, integrity verification, and generated model cards |
 | Guarded experiment tracking | Separate MLflow runs for all three model paths, checksummed lineage and evidence, idempotent publication, registration only after every gate passes, comparison with the current production model, and rollback-safe production aliases |
 | Scheduled model lifecycle | Manually triggered Airflow training DAG with bounded retries, execution timeout, one active run, and the same tracking workflow used by the CLI |
-| Engineering documentation | Data card and seven ADRs covering infrastructure, ingestion, orchestration, feature correctness, reproducible promotion decisions, and registry safety |
+| Initial prediction API | Verified MLflow or local-bundle loading, native static-model inference, New York calendar parity, explicit fallback provenance, health/readiness, Prometheus metrics, and a training-to-registry-to-HTTP integration test |
+| Engineering documentation | Data card and eight ADRs covering infrastructure, ingestion, orchestration, feature correctness, reproducible promotion decisions, registry safety, and the serving boundary |
 
 ### Remaining
 
@@ -63,7 +66,7 @@ integration, and documentation. They are ranges rather than deadlines.
 
 | Priority | Workstream | Definition of done | Estimate |
 |---:|---|---|---:|
-| 1 | Prediction service | FastAPI model loading, Redis lookup and explicit fallback, prediction publication, health/metrics endpoints, authentication for operator actions, Helm deployment, and HPA | 3–5 days |
+| 1 | Complete prediction service | Add Redis lookup and streaming inference to the initial API, prediction publication, authentication for any operator actions, Helm deployment, and HPA | 3–5 days |
 | 2 | Event replay and stream processor | Event-time replayer, registered broker schemas, Bytewax windows and watermarks, late-event policy, Redis writes, checkpoint recovery, and service metrics | 6–8 days |
 | 3 | Offline/online feature parity | Replay a fixture day, compare stream outputs with gold, report mismatch rate and maximum difference, and fail on skew | 1–2 days |
 | 4 | Closed-loop evaluation | Prediction/completion joiner, durable error records, live MAE and coverage, Evidently drift report, and guarded retraining trigger | 4–6 days |
@@ -207,6 +210,53 @@ boundary and [ADR-0007](docs/adr/0007-guarded-mlflow-registry.md) for tracking a
 Without configuration overrides, MLflow uses a repository-local SQLite backend and filesystem
 artifact store under `artifacts/mlflow/`. The kind profile instead runs MLflow with PostgreSQL
 metadata and server-proxied artifacts in MinIO.
+
+## Prediction API
+
+Install the serving runtime and start the API after a successful tracked training run:
+
+```bash
+python -m pip install -e '.[serving]'
+tripml serve                         # localhost:8000; resolves the production alias at startup
+```
+
+For development without MLflow, explicitly select a bundle produced by `tripml train --no-track`:
+
+```bash
+tripml serve --bundle artifacts/training/<run-id>
+```
+
+Local-bundle mode accepts unpromoted models and reports a null registry version. The default registry
+mode requires a finished, promoted streaming run and its matching static sibling. Startup verifies
+artifact checksums, feature order, and a warm-up prediction before the process becomes ready. Missing,
+corrupt, or inconsistent artifacts abort startup. The alias is resolved once; restart the process to
+adopt a different version. Registry availability is not a request-time dependency.
+
+```bash
+curl --fail http://127.0.0.1:8000/v1/eta \
+  -H 'Content-Type: application/json' \
+  -d '{"trip_id":"demo-001","pickup_zone_id":161,"dropoff_zone_id":236,
+       "pickup_time":"2024-04-15T12:00:00-04:00","trip_distance_miles":3.2,
+       "passenger_count":2}'
+curl --fail http://127.0.0.1:8000/readyz
+curl --fail http://127.0.0.1:8000/metrics
+```
+
+This initial API always uses the static-feature LightGBM model: `feature_fallback` is `true`,
+`feature_timestamps` is empty, and `model_version` is `<training-run-id>-static`. The returned
+`features_used` records the exact model inputs. Pickup time must include an offset; calendar features
+convert to New York time and match gold's Sunday-zero hour-of-week convention. Distances must be
+finite and nonnegative; invalid inputs return HTTP 422. Inference failures return HTTP 503.
+
+`/healthz` reports process liveness, `/readyz` reports the loaded model and fallback mode, `/docs`
+provides the interactive API contract, and `/metrics` exposes response counters, fallback counts, and
+a latency histogram with a 50 ms bucket. Metrics are per process; the CLI runs one Uvicorn worker.
+Latency objectives have **not** yet been measured under serving load.
+
+The static sibling has held-out evaluation metrics but is not independently promotion-gated. Redis
+lookup, streaming-model inference, broker publication, operator actions, and a Kubernetes serving
+deployment are not implemented in this slice. Predictions currently exist only in the HTTP response;
+they are not durably logged. See [ADR-0008](docs/adr/0008-initial-prediction-api.md) for these boundaries.
 
 ## Airflow orchestration
 

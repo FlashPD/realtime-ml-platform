@@ -14,7 +14,6 @@ from pydantic import (
     Field,
     NonNegativeFloat,
     NonNegativeInt,
-    PositiveFloat,
     PositiveInt,
     model_validator,
 )
@@ -60,6 +59,15 @@ class TripCompleted(EventModel):
     fare_amount: NonNegativeFloat
 
 
+class ETARequest(ContractModel):
+    trip_id: TripId
+    pickup_zone_id: ZoneId
+    dropoff_zone_id: ZoneId
+    pickup_time: AwareDateTime
+    trip_distance_miles: float = Field(ge=0, allow_inf_nan=False)
+    passenger_count: NonNegativeInt = Field(le=9)
+
+
 FeatureValue = float | int | str | bool
 
 
@@ -70,7 +78,7 @@ class Prediction(ContractModel):
     features_used: dict[str, FeatureValue]
     feature_timestamps: dict[str, AwareDateTime]
     feature_fallback: bool
-    estimated_duration_seconds: PositiveFloat
+    estimated_duration_seconds: float = Field(gt=0, allow_inf_nan=False)
     served_at: AwareDateTime
     schema_version: SchemaVersion = "1.0"
 
@@ -196,6 +204,7 @@ class DriftReport(ContractModel):
 
 
 CONTRACTS: dict[str, type[BaseModel]] = {
+    "eta-request-v1": ETARequest,
     "trip-started-v1": TripStarted,
     "trip-completed-v1": TripCompleted,
     "prediction-v1": Prediction,
