@@ -5,17 +5,23 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import traceback
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
 import yaml
+from kind_load import run_kind_load
+
+from tripml.contracts import OnlineZoneWindowFeatures
 
 ROOT = Path(__file__).resolve().parents[1]
 pytestmark = pytest.mark.e2e
 
 
-def test_serving_deployment_from_registry_to_acknowledged_http(tmp_path: Path) -> None:
+def test_serving_deployment_from_registry_to_acknowledged_http(
+    tmp_path: Path, online_snapshots: tuple[OnlineZoneWindowFeatures, ...]
+) -> None:
     context = os.getenv("TRIPML_TEST_KIND_CONTEXT")
     image = os.getenv("TRIPML_TEST_SERVING_IMAGE")
     if not context or not image:
@@ -29,6 +35,8 @@ def test_serving_deployment_from_registry_to_acknowledged_http(tmp_path: Path) -
     base = f"{release}-tripml"
     helm = str(ROOT.parent / ".tools/bin/helm")
     repository = ROOT.parent
+    load_enabled = os.getenv("TRIPML_TEST_KIND_LOAD") == "1"
+    output: Path | None = None
 
     def run(
         *args: str, body: str | None = None, check: bool = True
@@ -45,30 +53,58 @@ def test_serving_deployment_from_registry_to_acknowledged_http(tmp_path: Path) -
     def apply(document: object) -> None:
         kube("apply", "-f", "-", body=yaml.safe_dump(document))
 
+    if load_enabled:
+        run(
+            "kubectl",
+            "--context",
+            context,
+            "wait",
+            "apiservice/v1beta1.metrics.k8s.io",
+            "--for=condition=Available",
+            "--timeout=30s",
+        )
+        output = Path(os.environ["TRIPML_KIND_LOAD_OUTPUT"]).resolve()
+        output.mkdir(parents=True, exist_ok=False)
+        (output / "cluster-version.json").write_text(
+            run("kubectl", "--context", context, "version", "-o", "json").stdout
+        )
+        (output / "nodes.json").write_text(
+            run("kubectl", "--context", context, "get", "nodes", "-o", "json").stdout
+        )
     run("kubectl", "--context", context, "create", "namespace", namespace)
     try:
-        credentials = json.loads(
-            run(
-                "kubectl",
-                "--context",
-                context,
-                "-n",
-                infrastructure,
-                "get",
-                "secret",
-                "tripml-infra-credentials",
-                "-o",
-                "json",
-            ).stdout
-        )
-        apply(
-            {
-                "apiVersion": "v1",
-                "kind": "Secret",
-                "metadata": {"name": "fixture-credentials"},
-                "data": {"redis-password": credentials["data"]["redis-password"]},
-            }
-        )
+        if load_enabled:
+            apply(
+                {
+                    "apiVersion": "v1",
+                    "kind": "Secret",
+                    "metadata": {"name": "fixture-credentials"},
+                    "stringData": {"redis-password": uuid4().hex},
+                }
+            )
+        else:
+            credentials = json.loads(
+                run(
+                    "kubectl",
+                    "--context",
+                    context,
+                    "-n",
+                    infrastructure,
+                    "get",
+                    "secret",
+                    "tripml-infra-credentials",
+                    "-o",
+                    "json",
+                ).stdout
+            )
+            apply(
+                {
+                    "apiVersion": "v1",
+                    "kind": "Secret",
+                    "metadata": {"name": "fixture-credentials"},
+                    "data": {"redis-password": credentials["data"]["redis-password"]},
+                }
+            )
         # Broker metadata advertises its short service name, resolved in the test namespace.
         apply(
             {
@@ -214,8 +250,14 @@ def test_serving_deployment_from_registry_to_acknowledged_http(tmp_path: Path) -
                 },
             }
         )
+        if load_enabled:
+            values["redis"] = {"enabled": True}
+            values["serving"]["redisHost"] = "serving-check-tripml-redis"
+            values["serving"]["autoscaling"] = {"enabled": True}
         values_file = tmp_path / "values.yaml"
         values_file.write_text(yaml.safe_dump(values))
+        if output is not None:
+            (output / "values.yaml").write_text(values_file.read_text())
         deployed = run(
             helm,
             "upgrade",
@@ -263,33 +305,65 @@ def test_serving_deployment_from_registry_to_acknowledged_http(tmp_path: Path) -
         deployment = json.loads(
             kube("get", "deployment", "serving-check-tripml-serving", "-o", "json").stdout
         )
-        assert deployment["status"]["availableReplicas"] == 1
+        assert deployment["status"]["availableReplicas"] >= 1
+        if output is not None:
+            run_kind_load(
+                kube,
+                apply,
+                image=image,
+                namespace=namespace,
+                output=output,
+                snapshots=online_snapshots,
+            )
     except Exception:
+        if output is not None:
+            (output / "failure.txt").write_text(traceback.format_exc())
         print(kube("get", "pods", check=False).stdout)
         for workload in (
             "deployment/mlflow-fixture",
             "job/registry-seed",
             "deployment/serving-check-tripml-serving",
         ):
-            print(kube("logs", workload, "--all-containers", check=False).stdout)
+            print(kube("logs", workload, "--all-containers", "--tail=40", check=False).stdout)
         raise
     finally:
-        # Delete only the uniquely named topic created by this test; retain platform state.
-        run(
-            "kubectl",
-            "--context",
-            context,
-            "-n",
-            infrastructure,
-            "exec",
-            f"{base}-redpanda-0",
-            "--",
-            "rpk",
-            "topic",
-            "delete",
-            topic,
-            "-X",
-            "brokers=localhost:9092",
-            check=False,
-        )
-        run("kubectl", "--context", context, "delete", "namespace", namespace, "--wait=false")
+        try:
+            if output is not None:
+                for resource in ("pods", "events"):
+                    (output / f"cleanup-{resource}.json").write_text(
+                        kube("get", resource, "-o", "json", check=False).stdout
+                    )
+                for workload in ("pod/load-client", "deployment/serving-check-tripml-serving"):
+                    (output / f"{workload.split('/')[-1]}.log").write_text(
+                        kube("logs", workload, "--all-containers", check=False).stdout
+                    )
+        finally:
+            try:
+                # Delete only the uniquely named topic created by this test; retain platform state.
+                run(
+                    "kubectl",
+                    "--context",
+                    context,
+                    "-n",
+                    infrastructure,
+                    "exec",
+                    f"{base}-redpanda-0",
+                    "--",
+                    "rpk",
+                    "topic",
+                    "delete",
+                    topic,
+                    "-X",
+                    "brokers=localhost:9092",
+                    check=False,
+                )
+            finally:
+                run(
+                    "kubectl",
+                    "--context",
+                    context,
+                    "delete",
+                    "namespace",
+                    namespace,
+                    "--wait=false",
+                )

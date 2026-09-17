@@ -1,8 +1,9 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help install lint format typecheck test check contracts ingest features train serve benchmark benchmark-resilience tools helm-lint cluster cluster-test cluster-status airflow-password airflow-ui mlflow-ui serving-deploy serving-ui cluster-delete
+.PHONY: help install lint format typecheck test check contracts ingest features train serve benchmark benchmark-resilience metrics-server serving-load-test tools helm-lint cluster cluster-test cluster-status airflow-password airflow-ui mlflow-ui serving-deploy serving-ui cluster-delete
 
 PYTHON ?= python3.12
+KIND_CONTEXT ?= kind-tripml
 
 help: ## Show available commands
 	@awk 'BEGIN {FS = ":.*## "; printf "Usage: make <target>\n\n"} /^[a-zA-Z_-]+:.*## / {printf "  %-14s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -51,6 +52,15 @@ benchmark-resilience: ## Test isolated serving failures and recovery (OUTPUT=new
 	@test -n "$(OUTPUT)" || (echo "OUTPUT must name a new evidence directory" && exit 2)
 	TRIPML_TEST_SERVING_RESILIENCE=1 TRIPML_RESILIENCE_OUTPUT="$(OUTPUT)" \
 	  $(PYTHON) -m pytest tests/e2e/test_serving_resilience.py --no-cov
+
+metrics-server: ## Install pinned CPU metrics support in local kind
+	bash scripts/metrics-server.sh
+
+serving-load-test: ## Measure in-cluster serving and HPA (IMAGE=loaded:tag OUTPUT=new/path)
+	@test -n "$(IMAGE)" && test -n "$(OUTPUT)" || (echo "IMAGE and OUTPUT are required" && exit 2)
+	TRIPML_TEST_KIND_CONTEXT="$(KIND_CONTEXT)" TRIPML_TEST_SERVING_IMAGE="$(IMAGE)" \
+	  TRIPML_TEST_KIND_LOAD=1 TRIPML_KIND_LOAD_OUTPUT="$(OUTPUT)" \
+	  $(PYTHON) -m pytest tests/e2e/test_serving_kind.py --no-cov --tb=short
 
 tools: ## Install pinned kind and Helm binaries into .tools/bin
 	./scripts/bootstrap-tools.sh all

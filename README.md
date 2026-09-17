@@ -6,7 +6,7 @@ point-in-time-correct features, event-time stream processing, training/serving p
 model promotion, low-latency serving, closed-loop monitoring, and reproducible operations on
 Kubernetes.
 
-> **Status:** Serving benchmark milestone. The package, contracts, CI gates,
+> **Status:** Serving load and autoscaling milestone. The package, contracts, CI gates,
 > bounded-memory bronze-to-silver ingestion, durable PostgreSQL lineage, Airflow 3 orchestration,
 > leakage-safe dbt-duckdb gold features, deterministic model comparison, and explicit promotion
 > gates are implemented. MLflow tracking, conditional registration, and production-alias protection
@@ -16,8 +16,10 @@ Kubernetes.
 > Serving now has a non-root image, Helm deployment, health probes, topic provisioning, and an
 > optional CPU HPA. A constant-arrival HTTP benchmark now exports request-level evidence and enforces
 > latency, error, overload, and serving-mode checks. An isolated resilience suite exercises Redis and
-> broker failures, recovery, and consumer readback. Representative cluster load measurements, the
-> stream producer, and the ground-truth joiner remain pending.
+> broker failures, recovery, and consumer readback. An in-cluster synthetic load test measures Service
+> latency, traffic across replicas, CPU scale-up, and the default scale-down stabilization window.
+> Representative real-data load measurements, the stream producer, and the ground-truth joiner remain
+> pending.
 
 ## Intended architecture
 
@@ -67,7 +69,8 @@ showcase run has measured the production-shaped objectives yet.
 | Kubernetes serving | Non-root image, opt-in Helm deployment, registry/Redis/broker wiring, idempotent topic provisioning, resource limits, probes, rolling updates, optional CPU HPA, and an isolated kind smoke test |
 | Serving benchmark tooling | Constant-arrival load, bounded concurrency, explicit dropped arrivals, validated predictions and serving modes, objective exit codes, checksummed raw evidence, and failure-path tests |
 | Serving resilience harness | Disposable Redis/Redpanda, real HTTP and native-model inference, healthy online load, Redis/broker outages and recovery in one API process, metrics assertions, consumer readback, and manual CI evidence export |
-| Engineering documentation | Data card and twelve ADRs covering infrastructure, ingestion, orchestration, feature correctness, reproducible promotion decisions, registry safety, serving, delivery semantics, deployment, and load measurement |
+| In-cluster load and HPA harness | Temporary registry and Redis, a Service-addressed load pod, raw CPU/HPA/readiness observations, per-pod traffic evidence, default stabilization, model artifact export, and explicit workload/scaling gates |
+| Engineering documentation | Data card and thirteen ADRs covering infrastructure, ingestion, orchestration, feature correctness, reproducible promotion decisions, registry safety, serving, delivery semantics, deployment, load measurement, and autoscaling evidence |
 
 ### Remaining
 
@@ -76,11 +79,11 @@ integration, and documentation. They are ranges rather than deadlines.
 
 | Priority | Workstream | Definition of done | Estimate |
 |---:|---|---|---:|
-| 1 | Validate serving under load | Use the benchmark on representative cluster traffic, measure Redis/broker degradation, exercise CPU HPA, and add request-rate scaling with monitoring; authenticate any future operator endpoints | 1–2 days |
+| 1 | Representative load and request-rate scaling | Measure representative real-data cluster traffic and dependency degradation, and add request-rate scaling with monitoring; authenticate any future operator endpoints | 1–2 days |
 | 2 | Event replay and stream processor | Event-time replayer, registered broker schemas, Bytewax windows and watermarks, late-event policy, Redis writes, checkpoint recovery, and service metrics | 6–8 days |
 | 3 | Offline/online feature parity | Replay a fixture day, compare stream outputs with gold, report mismatch rate and maximum difference, and fail on skew | 1–2 days |
 | 4 | Closed-loop evaluation | Prediction/completion joiner, durable error records, live MAE and coverage, Evidently drift report, and guarded retraining trigger | 4–6 days |
-| 5 | Observability and integration hardening | Prometheus, Grafana, alerts, CI values profile, kind end-to-end workflow, dependency/image scanning, and serving load test | 4–6 days |
+| 5 | Observability and integration hardening | Prometheus, Grafana, alerts, CI values profile, kind end-to-end workflow, dependency/image scanning, and automated cluster load validation in CI | 4–6 days |
 | 6 | Showcase and failure scenarios | Resumable harness, eight planned fault scenarios, objective assertions, raw exports, generated evidence README, and safe teardown | 6–8 days |
 | 7 | Portfolio release polish | Runbooks, measured headline results, architecture and model evidence links, final limitations review, clean-laptop reproduction, and tagged release | 2–3 days |
 |  | **Full remaining scope** | **Everything in the original architecture and acceptance plan** | **24–35 days** |
@@ -381,17 +384,15 @@ CPU autoscaling is optional and requires an available Metrics Server. For **loca
 pinned upstream chart can provide it; the kubelet TLS exception is specific to the local cluster:
 
 ```bash
-.tools/bin/helm upgrade --install metrics-server metrics-server \
-  --repo https://kubernetes-sigs.github.io/metrics-server --version 3.13.0 \
-  --kube-context kind-tripml --namespace kube-system \
-  --set 'args[0]=--kubelet-insecure-tls' --wait --timeout 3m
+make metrics-server
 TRIPML_SERVING_AUTOSCALING=true make serving-deploy
 ```
 
 The HPA defaults to 1–3 replicas at 70% of requested CPU, with a five-minute scale-down stabilization
 window. With HPA enabled, the chart omits Deployment `replicas` so upgrades do not reset its target.
-The deployment command checks metrics availability before enabling it. Scaling behavior under load,
-request-rate autoscaling, and latency objectives have not yet been measured. Prometheus scrape
+The deployment command checks metrics availability before enabling it. The isolated load test below
+measures CPU scaling and synthetic serving latency. Request-rate autoscaling and representative
+traffic objectives remain pending. Prometheus scrape
 annotations are included; a Prometheus installation and ServiceMonitor remain observability work.
 
 An optional kind test seeds a synthetic model into a temporary MLflow deployment, installs the
@@ -407,6 +408,53 @@ TRIPML_TEST_KIND_CONTEXT=kind-tripml TRIPML_TEST_SERVING_IMAGE=tripml-serving:ch
 ```
 
 See [ADR-0011](docs/adr/0011-kubernetes-serving-deployment.md) for deployment and validation boundaries.
+
+### In-cluster load and CPU autoscaling
+
+The [recorded synthetic validation](docs/validation/kind-serving-load.md) passed 18,000 requests
+at 100 requests/second with P95 latency of 8.59 ms, zero errors or fallback, and observed scaling
+from one to three ready replicas and back to one. The report includes P99 latency, a scaling chart,
+configuration, failed-attempt history, and the limits of the measurement.
+
+With the local kind platform running, use a new evidence directory and a freshly built image:
+
+```bash
+make metrics-server
+docker build -f docker/serving/Dockerfile -t tripml-serving:load-check .
+.tools/bin/kind load docker-image tripml-serving:load-check --name tripml
+make serving-load-test PYTHON=.venv/bin/python \
+  IMAGE=tripml-serving:load-check OUTPUT=artifacts/benchmarks/kind-load-001
+```
+
+The test extends the existing registry-to-serving deployment check. Its load profile uses a new
+Redis instance and credentials in the temporary namespace. It reuses the local platform's broker
+through a unique topic; platform Redis keys and the production registry alias are untouched. A load
+pod seeds synthetic online snapshots and sends **18,000 requests at 100 requests/second** to the
+serving Service, with acknowledged publication. The default objectives are P95 below 50 ms, at most
+1% errors, and fallback below 1%. The load client permits 256 in-flight requests to cover the
+100 requests/second × 2-second timeout window; every dropped arrival still fails the run.
+
+This profile disables HTTP keep-alive, opening a new connection per request so traffic can reach
+newly ready replicas. Connection overhead is included in latency; the general benchmark retains
+keep-alive unless `--no-keepalive` is supplied. Both client timing and its resource limits are exported.
+
+The HPA uses the chart defaults: a 100m CPU request, a one-core limit, a 70% CPU target, 1–3 replicas,
+and a **300-second scale-down stabilization window**. The harness requires a one-replica baseline
+with CPU metrics, an HPA scale-up request, additional ready capacity during load, successful traffic
+on multiple pods, and a return to one ready/desired replica after traffic stops. It allows up to
+eight minutes for scale-down, so expect roughly 10–15 minutes including setup and cleanup.
+
+The output includes a generated README and scaling chart, separate workload/scaling gates, raw HPA and
+Metrics API samples, pod image IDs, per-pod serving metrics, model artifacts, the actual load script
+and snapshots, cluster/node information, Helm values, and Kubernetes events. Failed checks preserve
+diagnostics. Cleanup removes the unique topic and temporary namespace/PVC; Metrics Server remains
+installed as a cluster prerequisite. `KIND_CONTEXT` defaults to `kind-tripml`, and the test rejects
+contexts without the `kind-` prefix. The infrastructure namespace/release overrides from the smoke
+test also apply.
+
+These are short synthetic measurements on a shared, single-node cluster. They do not establish
+real-data accuracy, feature parity, production capacity, high availability, or request-rate scaling.
+See [ADR-0013](docs/adr/0013-in-cluster-load-and-cpu-autoscaling.md) for evidence boundaries.
 
 ### Measuring serving under load
 

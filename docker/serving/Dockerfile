@@ -9,7 +9,7 @@ RUN apt-get update \
 WORKDIR /opt/tripml
 COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
-RUN pip install --no-cache-dir '.[serving]'
+RUN pip install --no-cache-dir '.[serving,benchmark]'
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

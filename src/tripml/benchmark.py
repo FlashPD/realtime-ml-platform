@@ -28,6 +28,7 @@ class BenchmarkSettings(BaseModel):
     requests: int = Field(default=1000, ge=1, le=100_000)
     rate: float = Field(default=100, gt=0, le=10_000)
     concurrency: int = Field(default=32, ge=1, le=1000)
+    no_keepalive: bool = False
     warmup: int = Field(default=20, ge=0, le=1000)
     timeout_seconds: float = Field(default=2, gt=0, le=60)
     p95_objective_ms: float = Field(default=50, gt=0)
@@ -275,7 +276,8 @@ async def run_benchmark(
         base_url=settings.base_url,
         timeout=settings.timeout_seconds,
         limits=httpx.Limits(
-            max_connections=settings.concurrency, max_keepalive_connections=settings.concurrency
+            max_connections=settings.concurrency,
+            max_keepalive_connections=0 if settings.no_keepalive else settings.concurrency,
         ),
         follow_redirects=False,
         trust_env=False,
@@ -323,7 +325,8 @@ async def run_benchmark(
         "[warm-up samples](warmup.jsonl), [configuration](config.json), "
         "[request fixture](requests.jsonl). SHA-256 digests are recorded in the summary.\n\n"
         "Latency runs from scheduled arrival through response validation. Warm-up is excluded. "
-        "Connection pooling is enabled; requests are never retried. Publication is verified "
+        f"HTTP keep-alive is {'disabled' if settings.no_keepalive else 'enabled'}; "
+        "requests are never retried. Publication is verified "
         "through the API acknowledgment header, not a separate consumer. "
         "This run does not establish model accuracy, feature parity, autoscaling, or production "
         "capacity. Record the target hardware, deployment, model provenance, and dependency "

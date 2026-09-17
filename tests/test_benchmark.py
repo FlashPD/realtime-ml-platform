@@ -241,6 +241,7 @@ def test_cli_exits_nonzero_when_benchmark_objectives_fail(
                 "streaming",
                 "--rate",
                 "200",
+                "--no-keepalive",
             ]
         )
     assert code == (0 if passed else 1)
@@ -248,12 +249,15 @@ def test_cli_exits_nonzero_when_benchmark_objectives_fail(
     assert runner.call_args.args[0].expected_features == "streaming"
     assert runner.call_args.args[0].expected_publication == "acknowledged"
     assert runner.call_args.args[0].rate == 200
+    assert runner.call_args.args[0].no_keepalive
 
 
 def test_streaming_mode_accepts_streaming_predictions(tmp_path: Path) -> None:
     report = asyncio.run(
         run_benchmark(
-            settings(expected_features="streaming", base_url="http://localhost/"),
+            settings(
+                expected_features="streaming", base_url="http://localhost/", no_keepalive=True
+            ),
             requests_path=FIXTURE,
             output=tmp_path / "streaming",
             transport=httpx.MockTransport(lambda request: response(request, fallback=False)),

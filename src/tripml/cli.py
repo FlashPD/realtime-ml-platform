@@ -74,6 +74,11 @@ def _parser() -> argparse.ArgumentParser:
     benchmark.add_argument("--requests", type=int, default=1000)
     benchmark.add_argument("--rate", type=float, default=100, help="Scheduled requests per second")
     benchmark.add_argument("--concurrency", type=int, default=32, help="Maximum in-flight requests")
+    benchmark.add_argument(
+        "--no-keepalive",
+        action="store_true",
+        help="Open a new connection per request to exercise Service balancing during scaling",
+    )
     benchmark.add_argument("--warmup", type=int, default=20)
     benchmark.add_argument("--timeout-seconds", type=float, default=2)
     benchmark.add_argument("--p95-objective-ms", type=float, default=50)
