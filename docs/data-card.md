@@ -29,6 +29,12 @@ passenger count, and fare amount are read from bronze. Silver adds a stable sour
 duration in seconds, source row number, and contract version. Payment details, vendor identifiers,
 and surcharge fields are not needed by the model and are not copied into silver.
 
+Gold adds pickup hour-of-week and rolling 15- and 60-minute zone aggregates: trip counts, mean
+duration, mean speed, and mean distance for the pickup zone, plus a 60-minute destination-zone
+count. Each aggregate is based only on trips completed strictly before the subject pickup, and its
+latest eligible completion timestamp is retained for auditability. Gold manifests identify every
+silver input and the output by SHA-256.
+
 ## Quality contract
 
 A row is valid when:
@@ -58,6 +64,9 @@ Rejected partitions are quarantined as a whole and cannot replace a prior silver
 - Passenger count is driver-reported and can be missing or inaccurate.
 - Duration and speed features can be distorted by timestamp, distance, or zone errors that remain
   inside the declared bounds.
+- TLC timestamps are local wall-clock values without an encoded UTC offset. Window ordering follows
+  those published values; a future dataset spanning the autumn daylight-saving transition needs an
+  explicit disambiguation policy.
 - Historical performance may not transfer to other vehicle types, years, policy regimes, or
   unusual demand periods.
 - The generated trip ID is stable for a byte-identical source partition but is not a publisher

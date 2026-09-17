@@ -9,7 +9,9 @@ import pendulum
 from airflow.sdk import Param, dag, task
 from airflow.sdk.exceptions import AirflowFailException
 
+from tripml.features import build_gold_features
 from tripml.ingestion import PartitionStatus
+from tripml.settings import load_settings
 from tripml.workflows.ingestion import run_ingestion
 
 
@@ -29,6 +31,14 @@ def execute_ingestion_task(month: str, config_path: str | None) -> dict[str, obj
     return execution.as_document()
 
 
+def execute_feature_task(month: str, config_path: str | None) -> dict[str, object]:
+    """Build gold only after the upstream partition has been accepted."""
+
+    settings = load_settings(Path(config_path) if config_path else None)
+    report = build_gold_features(month, settings=settings)
+    return report.model_dump(mode="json")
+
+
 @dag(
     dag_id="tripml_ingestion",
     description="Download and quality-gate one NYC TLC yellow-taxi partition",
@@ -36,7 +46,7 @@ def execute_ingestion_task(month: str, config_path: str | None) -> dict[str, obj
     start_date=pendulum.datetime(2024, 1, 1, tz="UTC"),
     catchup=False,
     max_active_runs=1,
-    dagrun_timeout=timedelta(minutes=30),
+    dagrun_timeout=timedelta(minutes=45),
     render_template_as_native_obj=True,
     params={
         "month": Param(
@@ -63,7 +73,18 @@ def _tripml_ingestion() -> None:
     def ingest_partition(month: str, config_path: str | None) -> dict[str, object]:
         return execute_ingestion_task(month, config_path)
 
-    ingest_partition("{{ params.month }}", "{{ params.config_path }}")
+    @task(
+        task_id="build_gold_features",
+        retries=1,
+        retry_delay=timedelta(minutes=1),
+        execution_timeout=timedelta(minutes=15),
+    )
+    def build_features(month: str, config_path: str | None) -> dict[str, object]:
+        return execute_feature_task(month, config_path)
+
+    ingestion_result = ingest_partition("{{ params.month }}", "{{ params.config_path }}")
+    gold_result = build_features("{{ params.month }}", "{{ params.config_path }}")
+    ingestion_result >> gold_result
 
 
 tripml_ingestion_dag = _tripml_ingestion()

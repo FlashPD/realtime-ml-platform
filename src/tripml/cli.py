@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from tripml.contracts import contract_schemas
+from tripml.features import build_gold_features
 from tripml.settings import load_settings, settings_as_dict
 from tripml.workflows.ingestion import run_ingestion
 
@@ -34,6 +35,14 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         help="Validate a local Parquet file instead of downloading the official source",
     )
+
+    features = commands.add_parser("features", help="Build offline feature tables")
+    feature_commands = features.add_subparsers(dest="features_command", required=True)
+    build = feature_commands.add_parser(
+        "build", help="Build point-in-time-correct gold features for one month"
+    )
+    build.add_argument("--month", required=True, help="Target month in YYYY-MM format")
+    build.add_argument("--config", type=Path, help="Optional YAML configuration path")
     return parser
 
 
@@ -66,6 +75,13 @@ def _ingest(month_value: str, config_path: Path | None, source: Path | None) -> 
     return execution.exit_code
 
 
+def _build_features(month_value: str, config_path: Path | None) -> int:
+    settings = load_settings(config_path)
+    report = build_gold_features(month_value, settings=settings)
+    print(json.dumps(report.model_dump(mode="json"), indent=2, sort_keys=True))
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "config" and args.config_command == "validate":
@@ -74,6 +90,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _export_contracts(args.output)
     if args.command == "ingest":
         return _ingest(args.month, args.config, args.source)
+    if args.command == "features" and args.features_command == "build":
+        return _build_features(args.month, args.config)
     raise AssertionError("unreachable command")
 
 

@@ -7,6 +7,7 @@ import pytest
 from airflow.sdk.exceptions import AirflowFailException
 
 from tripml.airflow_dags import ingestion as dag_module
+from tripml.features import FeatureBuildReport
 from tripml.ingestion import PartitionQualityReport, PartitionStatus
 from tripml.workflows.ingestion import IngestionExecution
 
@@ -46,12 +47,17 @@ def test_ingestion_dag_has_bounded_retry_and_concurrency_policy() -> None:
     assert airflow_dag.max_active_runs == 1
     assert airflow_dag.params.dump() == {"month": "2024-01", "config_path": None}
     assert airflow_dag.params.get_param("month").schema["pattern"].startswith("^20")
-    assert airflow_dag.task_ids == ["ingest_partition"]
+    assert airflow_dag.task_ids == ["ingest_partition", "build_gold_features"]
     task = airflow_dag.get_task("ingest_partition")
     assert task.retries == 2
     assert task.retry_delay.total_seconds() == 60
     assert task.execution_timeout is not None
     assert task.execution_timeout.total_seconds() == 20 * 60
+    feature_task = airflow_dag.get_task("build_gold_features")
+    assert feature_task.retries == 1
+    assert feature_task.execution_timeout is not None
+    assert feature_task.execution_timeout.total_seconds() == 15 * 60
+    assert task.downstream_task_ids == {"build_gold_features"}
 
 
 def test_airflow_task_returns_small_json_result(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -76,3 +82,29 @@ def test_quarantine_fails_without_retrying_transient_policy(
 
     with pytest.raises(AirflowFailException, match=str(RUN_ID)):
         dag_module.execute_ingestion_task("2024-01", None)
+
+
+def test_airflow_feature_task_returns_manifest_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    report = FeatureBuildReport(
+        month="2024-01",
+        model_version="gold-features-v1",
+        output_path="data/gold/yellow/month=2024-01/training_features.parquet",
+        manifest_path="data/gold/yellow/month=2024-01/manifest.json",
+        row_count=10,
+        output_sha256="b" * 64,
+        output_size_bytes=100,
+        input_rows=10,
+        inputs=(),
+        short_window_seconds=900,
+        long_window_seconds=3600,
+        config_fingerprint="a" * 64,
+        built_at=datetime(2024, 2, 1, tzinfo=UTC),
+    )
+    monkeypatch.setattr(dag_module, "build_gold_features", lambda *_args, **_kwargs: report)
+
+    result = dag_module.execute_feature_task("2024-01", None)
+
+    assert result["row_count"] == 10
+    assert result["model_version"] == "gold-features-v1"

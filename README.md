@@ -6,9 +6,10 @@ point-in-time-correct features, event-time stream processing, training/serving p
 model promotion, low-latency serving, closed-loop monitoring, and reproducible operations on
 Kubernetes.
 
-> **Status:** Kubernetes-orchestrated ingestion milestone. The package, contracts, CI gates,
-> bounded-memory bronze-to-silver ingestion, durable PostgreSQL lineage, and Airflow 3 orchestration
-> now run in the local kind profile. Point-in-time-correct gold features are next.
+> **Status:** Point-in-time batch feature milestone. The package, contracts, CI gates,
+> bounded-memory bronze-to-silver ingestion, durable PostgreSQL lineage, Airflow 3 orchestration,
+> and leakage-safe dbt-duckdb gold features now run in the local kind profile. Model training and
+> promotion gates are next.
 
 ## Intended architecture
 
@@ -102,14 +103,33 @@ TRIPML_TEST_DATABASE_URL='postgresql://tripml:...@localhost:5432/tripml_test' \
 See the [data card](docs/data-card.md) for source limitations and validation rules, and
 [ADR-0002](docs/adr/0002-transactional-bounded-memory-ingestion.md) for the implementation trade-offs.
 
+## Point-in-time gold features
+
+Build the training feature table after ingesting a partition:
+
+```bash
+make features MONTH=2024-01
+```
+
+The dbt-duckdb model computes 15- and 60-minute pickup-zone statistics and a 60-minute
+dropoff-zone count from trips that completed strictly before each pickup. It reads the preceding
+silver month when available so lookbacks remain correct at month boundaries. A completion at the
+exact pickup timestamp is excluded, preventing target leakage from simultaneous events.
+
+The tested table is atomically published to
+`data/gold/yellow/month=YYYY-MM/training_features.parquet`. Its adjacent manifest records input and
+output checksums, row counts, window configuration, configuration fingerprint, feature model
+version, and build time. See
+[ADR-0005](docs/adr/0005-point-in-time-gold-features.md) for the event-ledger window design.
+
 ## Airflow orchestration
 
-The manually triggered `tripml_ingestion` DAG runs the same orchestrator-independent workflow as
+The manually triggered `tripml_ingestion` DAG runs the same orchestrator-independent workflows as
 the CLI. It accepts a `month` parameter, defaulting to `2024-01`, and an optional worker-visible
-`config_path`. The DAG requires `TRIPML_LINEAGE__DATABASE_URL`, limits its ingestion task to 20
-minutes and the overall run to 30 minutes, permits only one active run, and retries transient
-failures twice. A partition rejected by its quality gate fails without retrying and points
-operators to its durable lineage run.
+`config_path`. The DAG requires `TRIPML_LINEAGE__DATABASE_URL`, limits ingestion to 20 minutes and
+the downstream gold build to 15 minutes, permits only one active run, and uses bounded retries. A
+partition rejected by its quality gate fails without retrying and points operators to its durable
+lineage run; gold is built only after acceptance.
 
 Airflow discovers the thin entry point at `dags/tripml_ingestion.py`; the implementation lives in
 the installable `tripml.airflow_dags` package so it can be type-checked and unit-tested. For local

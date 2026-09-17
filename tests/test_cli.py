@@ -9,6 +9,7 @@ import pytest
 
 from tripml.cli import main
 from tripml.contracts import CONTRACTS
+from tripml.features import FeatureBuildReport
 from tripml.ingestion import PartitionQualityReport
 from tripml.lineage import PostgresLineageRepository
 
@@ -104,3 +105,30 @@ def test_ingest_local_partition_reports_acceptance(
     assert output["lineage_run_id"] == str(lineage_run_id)
     assert fake_lineage.migrated is True
     assert fake_lineage.completed is not None
+
+
+def test_feature_build_prints_machine_readable_report(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    report = FeatureBuildReport(
+        month="2024-01",
+        model_version="gold-features-v1",
+        output_path="data/gold/yellow/month=2024-01/training_features.parquet",
+        manifest_path="data/gold/yellow/month=2024-01/manifest.json",
+        row_count=42,
+        output_sha256="b" * 64,
+        output_size_bytes=100,
+        input_rows=42,
+        inputs=(),
+        short_window_seconds=900,
+        long_window_seconds=3600,
+        config_fingerprint="a" * 64,
+        built_at=datetime(2024, 2, 1).astimezone(),
+    )
+    monkeypatch.setattr("tripml.cli.build_gold_features", lambda *_args, **_kwargs: report)
+
+    exit_code = main(["features", "build", "--month", "2024-01"])
+    output = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert output["row_count"] == 42
