@@ -92,6 +92,51 @@ def test_benchmark_records_reproducible_evidence_and_excludes_warmup(tmp_path: P
         asyncio.run(run_benchmark(settings(), requests_path=FIXTURE, output=output))
 
 
+@pytest.mark.parametrize("valid", [True, False])
+def test_workload_provenance_is_verified_before_traffic(tmp_path: Path, valid: bool) -> None:
+    fixture_bytes = "".join(r.model_dump_json() + "\n" for r in load_requests(FIXTURE)).encode()
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0",
+                "artifacts_sha256": {
+                    "requests.jsonl": hashlib.sha256(fixture_bytes).hexdigest()
+                    if valid
+                    else "wrong"
+                },
+            }
+        )
+    )
+    output = tmp_path / "run"
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return response(request)
+
+    run = run_benchmark(
+        settings(),
+        requests_path=FIXTURE,
+        output=output,
+        workload_manifest=manifest,
+        transport=httpx.MockTransport(handler),
+    )
+    if valid:
+        report = asyncio.run(run)
+        assert report["passed"]
+        assert (output / "workload-manifest.json").read_bytes() == manifest.read_bytes()
+        assert (
+            report["artifacts_sha256"]["workload-manifest.json"]
+            == hashlib.sha256(manifest.read_bytes()).hexdigest()
+        )
+    else:
+        with pytest.raises(ValueError, match="manifest must match"):
+            asyncio.run(run)
+        assert calls == []
+        assert not output.exists()
+
+
 @pytest.mark.parametrize(
     ("failure", "expected"),
     [

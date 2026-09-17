@@ -70,6 +70,9 @@ def _parser() -> argparse.ArgumentParser:
     benchmark = commands.add_parser("benchmark", help="Measure serving under constant-arrival load")
     benchmark.add_argument("--requests-file", type=Path, required=True, help="ETARequest JSONL")
     benchmark.add_argument("--output", type=Path, required=True, help="New evidence directory")
+    benchmark.add_argument(
+        "--workload-manifest", type=Path, help="Verify and preserve a generated workload manifest"
+    )
     benchmark.add_argument("--base-url", default="http://127.0.0.1:8000")
     benchmark.add_argument("--requests", type=int, default=1000)
     benchmark.add_argument("--rate", type=float, default=100, help="Scheduled requests per second")
@@ -90,6 +93,14 @@ def _parser() -> argparse.ArgumentParser:
         "--expected-publication", choices=("acknowledged", "disabled"), default="acknowledged"
     )
     benchmark.add_argument("--label", default="serving-load")
+    workload = commands.add_parser(
+        "benchmark-workload", help="Sample reproducible serving requests from accepted TLC silver"
+    )
+    workload.add_argument("--month", required=True, help="Source month in YYYY-MM format")
+    workload.add_argument("--config", type=Path, help="Optional YAML configuration path")
+    workload.add_argument("--output", type=Path, required=True, help="New workload directory")
+    workload.add_argument("--rows", type=int, default=10_000)
+    workload.add_argument("--seed", type=int, default=42)
     return parser
 
 
@@ -191,15 +202,30 @@ def main(argv: Sequence[str] | None = None) -> int:
         from tripml.benchmark import BenchmarkSettings, run_benchmark
 
         options = vars(args).copy()
-        for key in ("command", "requests_file", "output"):
+        for key in ("command", "requests_file", "output", "workload_manifest"):
             options.pop(key)
         report = asyncio.run(
             run_benchmark(
-                BenchmarkSettings(**options), requests_path=args.requests_file, output=args.output
+                BenchmarkSettings(**options),
+                requests_path=args.requests_file,
+                output=args.output,
+                workload_manifest=args.workload_manifest,
             )
         )
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0 if report["passed"] else 1
+    if args.command == "benchmark-workload":
+        from tripml.workload import build_workload
+
+        report = build_workload(
+            args.month,
+            settings=load_settings(args.config),
+            output=args.output,
+            rows=args.rows,
+            seed=args.seed,
+        )
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0
     raise AssertionError("unreachable command")
 
 

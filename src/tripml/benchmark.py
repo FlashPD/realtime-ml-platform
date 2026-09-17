@@ -259,15 +259,30 @@ async def run_benchmark(
     *,
     requests_path: Path,
     output: Path,
+    workload_manifest: Path | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> dict[str, Any]:
     fixtures = load_requests(requests_path)
+    fixture_bytes = "".join(request.model_dump_json() + "\n" for request in fixtures).encode()
+    provenance_bytes = None
+    if workload_manifest is not None:
+        provenance_bytes = workload_manifest.read_bytes()
+        provenance = json.loads(provenance_bytes)
+        if (
+            not isinstance(provenance, dict)
+            or provenance.get("schema_version") != "1.0"
+            or not isinstance(provenance.get("artifacts_sha256"), dict)
+            or provenance["artifacts_sha256"].get("requests.jsonl")
+            != hashlib.sha256(fixture_bytes).hexdigest()
+        ):
+            raise ValueError("workload manifest must match the canonical request fixture checksum")
     # Require a new directory: never overwrite evidence from a previous run.
     output.mkdir(parents=True, exist_ok=False)
     run_id = uuid4().hex
     started_at = datetime.now(UTC).isoformat()
-    fixture_bytes = "".join(request.model_dump_json() + "\n" for request in fixtures).encode()
     (output / "requests.jsonl").write_bytes(fixture_bytes)
+    if provenance_bytes is not None:
+        (output / "workload-manifest.json").write_bytes(provenance_bytes)
     configuration = settings.model_dump()
     (output / "config.json").write_text(
         json.dumps(configuration, indent=2) + "\n", encoding="utf-8"
@@ -288,6 +303,9 @@ async def run_benchmark(
         (output / name).write_text(
             "".join(row.model_dump_json() + "\n" for row in rows), encoding="utf-8"
         )
+    evidence_files = ["requests.jsonl", "config.json", "samples.jsonl", "warmup.jsonl"]
+    if provenance_bytes is not None:
+        evidence_files.append("workload-manifest.json")
     report = {
         "schema_version": "1.0",
         "run_id": run_id,
@@ -301,7 +319,7 @@ async def run_benchmark(
         },
         "artifacts_sha256": {
             name: hashlib.sha256((output / name).read_bytes()).hexdigest()
-            for name in ("requests.jsonl", "config.json", "samples.jsonl", "warmup.jsonl")
+            for name in evidence_files
         },
         "warmup_outcomes": dict(Counter(sample.outcome for sample in warmup)),
         **summarize(samples, settings, elapsed),
@@ -330,7 +348,12 @@ async def run_benchmark(
         "through the API acknowledgment header, not a separate consumer. "
         "This run does not establish model accuracy, feature parity, autoscaling, or production "
         "capacity. Record the target hardware, deployment, model provenance, and dependency "
-        "state alongside these files before using the numbers as portfolio evidence.\n",
+        "state alongside these files before using the numbers as portfolio evidence.\n"
+        + (
+            "\n[Verified request-workload provenance](workload-manifest.json).\n"
+            if provenance_bytes is not None
+            else ""
+        ),
         encoding="utf-8",
     )
     return report

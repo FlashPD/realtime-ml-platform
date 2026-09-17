@@ -18,6 +18,8 @@ Kubernetes.
 > latency, error, overload, and serving-mode checks. An isolated resilience suite exercises Redis and
 > broker failures, recovery, and consumer readback. An in-cluster synthetic load test measures Service
 > latency, traffic across replicas, CPU scale-up, and the default scale-down stabilization window.
+> Real-data request workloads can now be sampled reproducibly from accepted silver partitions,
+> with distribution comparisons and checksummed provenance preserved by the benchmark runner.
 > Representative real-data load measurements, the stream producer, and the ground-truth joiner remain
 > pending.
 
@@ -70,7 +72,8 @@ showcase run has measured the production-shaped objectives yet.
 | Serving benchmark tooling | Constant-arrival load, bounded concurrency, explicit dropped arrivals, validated predictions and serving modes, objective exit codes, checksummed raw evidence, and failure-path tests |
 | Serving resilience harness | Disposable Redis/Redpanda, real HTTP and native-model inference, healthy online load, Redis/broker outages and recovery in one API process, metrics assertions, consumer readback, and manual CI evidence export |
 | In-cluster load and HPA harness | Temporary registry and Redis, a Service-addressed load pod, raw CPU/HPA/readiness observations, per-pod traffic evidence, default stabilization, model artifact export, and explicit workload/scaling gates |
-| Engineering documentation | Data card and thirteen ADRs covering infrastructure, ingestion, orchestration, feature correctness, reproducible promotion decisions, registry safety, serving, delivery semantics, deployment, load measurement, and autoscaling evidence |
+| Real-data request workloads | Bounded-memory sampling of accepted TLC silver, deterministic request fixtures, explicit DST exclusions, source/sample distributions, source checksums, and benchmark provenance verification |
+| Engineering documentation | Data card and fourteen ADRs covering infrastructure, ingestion, orchestration, feature correctness, reproducible promotion decisions, registry safety, serving, delivery semantics, deployment, load measurement, autoscaling evidence, and real-data workloads |
 
 ### Remaining
 
@@ -79,7 +82,7 @@ integration, and documentation. They are ranges rather than deadlines.
 
 | Priority | Workstream | Definition of done | Estimate |
 |---:|---|---|---:|
-| 1 | Representative load and request-rate scaling | Measure representative real-data cluster traffic and dependency degradation, and add request-rate scaling with monitoring; authenticate any future operator endpoints | 1–2 days |
+| 1 | Representative load and request-rate scaling | Use the real-data workload builder with a real-data model and matching online features to measure cluster traffic and dependency degradation; add request-rate scaling with monitoring; authenticate any future operator endpoints | 1–2 days |
 | 2 | Event replay and stream processor | Event-time replayer, registered broker schemas, Bytewax windows and watermarks, late-event policy, Redis writes, checkpoint recovery, and service metrics | 6–8 days |
 | 3 | Offline/online feature parity | Replay a fixture day, compare stream outputs with gold, report mismatch rate and maximum difference, and fail on skew | 1–2 days |
 | 4 | Closed-loop evaluation | Prediction/completion joiner, durable error records, live MAE and coverage, Evidently drift report, and guarded retraining trigger | 4–6 days |
@@ -472,8 +475,38 @@ disabled, add `--expected-publication disabled`. A passing run exits zero; any f
 exits one. Use a **new output directory** for each run; previous evidence is never overwritten.
 
 The included three-row fixture is synthetic and uses one zone pair at a fixed historical pickup
-time. It is suitable for checking the measurement path, not representing NYC traffic. Supply a
-representative `ETARequest` JSONL fixture and explicit online-mode expectations for a serving claim:
+time. It is suitable for checking the measurement path, not representing NYC traffic. Generate a
+sampled real-data workload from an already accepted silver month:
+
+```bash
+make benchmark-workload MONTH=2024-01 OUTPUT=artifacts/workloads/tlc-jan \
+  WORKLOAD_ARGS='--rows 10000 --seed 42'
+```
+
+The builder scans the entire partition in bounded batches, samples uniformly without replacement,
+and exports `requests.jsonl`, `manifest.json`, the ingestion quality report, and a README. It records
+input/output checksums and compares sample/population distributions for pickup hour of week, pickup
+and dropoff zones, distance, and passengers. The same input, seed, and Python version reproduce the
+fixture independently of batch size. Historical New York offsets are preserved; ambiguous or
+nonexistent daylight-saving pickup times are excluded and counted. Invalid eligible rows fail the
+build. The [January validation](docs/validation/real-data-workload.md) sampled 10,000 requests from
+2,757,364 accepted trips. See [ADR-0014](docs/adr/0014-real-data-serving-workloads.md) for trade-offs.
+
+Pass the manifest to preserve verified workload provenance in the benchmark evidence. Against a
+running API configured for static serving and acknowledged publication:
+
+```bash
+tripml benchmark --requests-file artifacts/workloads/tlc-jan/requests.jsonl \
+  --workload-manifest artifacts/workloads/tlc-jan/manifest.json \
+  --requests 10000 --rate 100 --expected-features static \
+  --output artifacts/benchmarks/tlc-jan-static
+```
+
+The manifest digest must match the request fixture before traffic is sent. This samples request
+mix; the benchmark still uses constant arrivals and replaces trip IDs. Real-data model accuracy
+and representative cluster latency remain unmeasured. Historical pickups also require matching
+event-time online features for a streaming-mode claim; the existing single-zone synthetic Redis
+fixtures cannot establish that claim. With those features prepared, use explicit expectations:
 
 ```bash
 tripml benchmark --base-url http://127.0.0.1:8000 \

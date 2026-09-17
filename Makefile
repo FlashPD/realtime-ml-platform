@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help install lint format typecheck test check contracts ingest features train serve benchmark benchmark-resilience metrics-server serving-load-test tools helm-lint cluster cluster-test cluster-status airflow-password airflow-ui mlflow-ui serving-deploy serving-ui cluster-delete
+.PHONY: help install lint format typecheck test check contracts ingest features train serve benchmark benchmark-workload benchmark-resilience metrics-server serving-load-test tools helm-lint cluster cluster-test cluster-status airflow-password airflow-ui mlflow-ui serving-deploy serving-ui cluster-delete
 
 PYTHON ?= python3.12
 KIND_CONTEXT ?= kind-tripml
@@ -47,6 +47,10 @@ serve: ## Serve production ETA predictions with optional Redis features
 
 benchmark: ## Benchmark serving (BENCHMARK_ARGS='--output artifacts/benchmarks/run ...')
 	$(PYTHON) -m tripml benchmark --requests-file examples/benchmark/requests.jsonl $(BENCHMARK_ARGS)
+
+benchmark-workload: ## Sample real TLC requests (MONTH=YYYY-MM OUTPUT=new/path WORKLOAD_ARGS='...')
+	@test -n "$(MONTH)" && test -n "$(OUTPUT)" || (echo "MONTH and OUTPUT are required" && exit 2)
+	$(PYTHON) -m tripml benchmark-workload --month "$(MONTH)" --output "$(OUTPUT)" $(WORKLOAD_ARGS)
 
 benchmark-resilience: ## Test isolated serving failures and recovery (OUTPUT=new/evidence/path)
 	@test -n "$(OUTPUT)" || (echo "OUTPUT must name a new evidence directory" && exit 2)
