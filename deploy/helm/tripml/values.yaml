@@ -69,3 +69,14 @@ airflow:
     dagProcessor:
       requests: {cpu: 100m, memory: 256Mi}
       limits: {cpu: 500m, memory: 768Mi}
+
+mlflow:
+  enabled: true
+  image:
+    repository: tripml-mlflow
+    tag: 0.1.0
+  backendDatabase: mlflow
+  artifactBucket: tripml-mlflow
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: "1", memory: 1Gi}

@@ -7,6 +7,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from tripml import tracking as tracking_module
 from tripml import training as training_module
 from tripml.cli import main
 from tripml.contracts import CONTRACTS
@@ -135,7 +136,7 @@ def test_feature_build_prints_machine_readable_report(
     assert output["row_count"] == 42
 
 
-def test_train_prints_machine_readable_report(
+def test_untracked_train_prints_machine_readable_report(
     capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     class FakeReport:
@@ -145,8 +146,30 @@ def test_train_prints_machine_readable_report(
 
     monkeypatch.setattr(training_module, "train_models", lambda *_args, **_kwargs: FakeReport())
 
-    exit_code = main(["train"])
+    exit_code = main(["train", "--no-track"])
     output = json.loads(capsys.readouterr().out)
 
     assert exit_code == 0
     assert output["run_id"] == "0123456789abcdef"
+
+
+def test_tracked_train_prints_registry_result(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FakeWorkflow:
+        def model_dump(self, *, mode: str) -> dict[str, object]:
+            assert mode == "json"
+            return {
+                "training": {"run_id": "0123456789abcdef"},
+                "tracking": {"production_alias_version": "3"},
+            }
+
+    monkeypatch.setattr(
+        tracking_module, "run_training_workflow", lambda *_args, **_kwargs: FakeWorkflow()
+    )
+
+    exit_code = main(["train"])
+    output = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert output["tracking"]["production_alias_version"] == "3"

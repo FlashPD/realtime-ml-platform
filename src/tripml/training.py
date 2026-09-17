@@ -449,13 +449,22 @@ def _metric_row(label: str, metrics: ModelMetrics) -> str:
     )
 
 
-def _run_identifier(inputs: Sequence[TrainingInput], settings: PlatformSettings) -> str:
+def _run_identifier(
+    inputs: Sequence[TrainingInput],
+    settings: PlatformSettings,
+    production_version: str | None,
+    production_metrics: ModelMetrics | None,
+) -> str:
     payload = {
         "inputs": [item.model_dump(mode="json", exclude={"path"}) for item in inputs],
         "training": settings.training.model_dump(mode="json", exclude={"artifact_root"}),
         "promotion_gate": settings.promotion_gate.model_dump(mode="json"),
         "static_features": STATIC_FEATURES,
         "streaming_features": STREAMING_FEATURES,
+        "production_version": production_version,
+        "production_metrics": (
+            production_metrics.model_dump(mode="json") if production_metrics is not None else None
+        ),
     }
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()[:16]
@@ -480,6 +489,8 @@ def _load_verified_report(manifest: Path, destination: Path) -> TrainingRunRepor
 def train_models(
     settings: PlatformSettings,
     *,
+    production_version: str | None = None,
+    production_metrics: ModelMetrics | None = None,
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> TrainingRunReport:
     """Train, evaluate, gate, and atomically publish a reproducible model bundle."""
@@ -506,7 +517,9 @@ def train_models(
             f"requires {settings.training.min_holdout_rows}"
         )
 
-    run_id = _run_identifier(inputs, settings)
+    if (production_version is None) != (production_metrics is None):
+        raise ValueError("production_version and production_metrics must be supplied together")
+    run_id = _run_identifier(inputs, settings, production_version, production_metrics)
     artifact_root = settings.training.artifact_root.resolve()
     destination = artifact_root / run_id
     existing_manifest = destination / "manifest.json"
@@ -583,6 +596,8 @@ def train_models(
         max_calibration_error_pct=streaming_calibration,
         settings=settings.promotion_gate,
         decided_at=trained_at,
+        production_version=production_version,
+        production_metrics=production_metrics,
     )
 
     artifact_root.mkdir(parents=True, exist_ok=True)

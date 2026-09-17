@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["credentialsSecret", "global", "postgresql", "redis", "minio", "redpanda", "airflow"],
+  "required": ["credentialsSecret", "global", "postgresql", "redis", "minio", "redpanda", "airflow", "mlflow"],
   "properties": {
     "credentialsSecret": {"type": "string", "minLength": 1},
     "global": {
@@ -45,6 +45,18 @@
             "dagProcessor": {"type": "object"}
           }
         }
+      }
+    },
+    "mlflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "image", "backendDatabase", "artifactBucket", "resources"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "image": {"$ref": "#/$defs/image"},
+        "backendDatabase": {"type": "string", "minLength": 1},
+        "artifactBucket": {"type": "string", "minLength": 3},
+        "resources": {"type": "object"}
       }
     }
   },

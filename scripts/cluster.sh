@@ -8,8 +8,10 @@ namespace="${TRIPML_NAMESPACE:-tripml}"
 release_name="${TRIPML_RELEASE_NAME:-tripml}"
 credentials_secret="tripml-infra-credentials"
 airflow_image="tripml-airflow:0.1.0"
+mlflow_image="tripml-mlflow:0.1.0"
 postgres_username="tripml"
 airflow_database="${TRIPML_AIRFLOW_DATABASE:-airflow}"
+mlflow_database="${TRIPML_MLFLOW_DATABASE:-mlflow}"
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -32,7 +34,7 @@ read_secret_value() {
 create_credentials() {
   local postgres_password redis_password minio_root_user minio_root_password
   local airflow_admin_password airflow_fernet_key airflow_jwt_secret
-  local airflow_database_url lineage_database_url database_host
+  local airflow_database_url lineage_database_url mlflow_database_url database_host
 
   postgres_password="$(read_secret_value postgres-password)"
   redis_password="$(read_secret_value redis-password)"
@@ -53,6 +55,7 @@ create_credentials() {
   database_host="${release_name}-tripml-postgresql"
   airflow_database_url="postgresql+psycopg://${postgres_username}:${postgres_password}@${database_host}:5432/${airflow_database}"
   lineage_database_url="postgresql://${postgres_username}:${postgres_password}@${database_host}:5432/tripml"
+  mlflow_database_url="postgresql+psycopg://${postgres_username}:${postgres_password}@${database_host}:5432/${mlflow_database}"
 
   kubectl --context "kind-${cluster_name}" --namespace "${namespace}" create secret generic \
     "${credentials_secret}" \
@@ -66,6 +69,7 @@ create_credentials() {
     --from-literal=airflow-jwt-secret="${airflow_jwt_secret}" \
     --from-literal=airflow-database-url="${airflow_database_url}" \
     --from-literal=lineage-database-url="${lineage_database_url}" \
+    --from-literal=mlflow-database-url="${mlflow_database_url}" \
     --dry-run=client --output yaml | \
     kubectl --context "kind-${cluster_name}" --namespace "${namespace}" apply -f -
 }
@@ -76,6 +80,14 @@ build_airflow_image() {
     --tag "${airflow_image}" \
     "${repository_root}"
   "${tool_directory}/kind" load docker-image "${airflow_image}" --name "${cluster_name}"
+}
+
+build_mlflow_image() {
+  docker build \
+    --file "${repository_root}/docker/mlflow/Dockerfile" \
+    --tag "${mlflow_image}" \
+    "${repository_root}"
+  "${tool_directory}/kind" load docker-image "${mlflow_image}" --name "${cluster_name}"
 }
 
 create_cluster() {
@@ -92,6 +104,7 @@ create_cluster() {
       --wait 120s
   fi
   build_airflow_image
+  build_mlflow_image
 
   kubectl --context "kind-${cluster_name}" create namespace "${namespace}" \
     --dry-run=client --output yaml | kubectl --context "kind-${cluster_name}" apply -f -
@@ -103,6 +116,7 @@ create_cluster() {
     --namespace "${namespace}" \
     --values "${repository_root}/deploy/helm/tripml/values-local.yaml" \
     --set-string airflow.metadataDatabase="${airflow_database}" \
+    --set-string mlflow.backendDatabase="${mlflow_database}" \
     --wait \
     --timeout 10m
 
@@ -139,6 +153,12 @@ forward_airflow() {
     port-forward "service/${release_name}-tripml-airflow" 8080:8080
 }
 
+forward_mlflow() {
+  require_command kubectl
+  kubectl --context "kind-${cluster_name}" --namespace "${namespace}" \
+    port-forward "service/${release_name}-tripml-mlflow" 5000:5000
+}
+
 delete_cluster() {
   "${repository_root}/scripts/bootstrap-tools.sh" kind
   "${tool_directory}/kind" delete cluster --name "${cluster_name}"
@@ -150,6 +170,7 @@ case "${1:-}" in
   status) show_status ;;
   airflow-password) show_airflow_password ;;
   airflow-ui) forward_airflow ;;
+  mlflow-ui) forward_mlflow ;;
   delete) delete_cluster ;;
-  *) echo "Usage: $0 {create|test|status|airflow-password|airflow-ui|delete}" >&2; exit 2 ;;
+  *) echo "Usage: $0 {create|test|status|airflow-password|airflow-ui|mlflow-ui|delete}" >&2; exit 2 ;;
 esac

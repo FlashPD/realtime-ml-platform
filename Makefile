@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help install lint format typecheck test check contracts ingest features train tools helm-lint cluster cluster-test cluster-status airflow-password airflow-ui cluster-delete
+.PHONY: help install lint format typecheck test check contracts ingest features train tools helm-lint cluster cluster-test cluster-status airflow-password airflow-ui mlflow-ui cluster-delete
 
 PYTHON ?= python3.12
 
@@ -62,6 +62,9 @@ airflow-password: ## Print the generated local Airflow admin password
 
 airflow-ui: ## Forward the local Airflow UI to http://localhost:8080
 	./scripts/cluster.sh airflow-ui
+
+mlflow-ui: ## Forward the local MLflow UI to http://localhost:5000
+	./scripts/cluster.sh mlflow-ui
 
 cluster-delete: ## Delete the local kind cluster and all of its data
 	./scripts/cluster.sh delete

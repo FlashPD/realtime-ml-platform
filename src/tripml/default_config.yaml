@@ -38,3 +38,10 @@ ingestion:
 lineage:
   connect_timeout_seconds: 10
   auto_migrate: true
+
+tracking:
+  tracking_uri: sqlite:///artifacts/mlflow/mlflow.db
+  local_artifact_root: artifacts/mlflow/runs
+  experiment_name: tripml-training
+  registered_model_name: tripml-trip-duration
+  production_alias: production

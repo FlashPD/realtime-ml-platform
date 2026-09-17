@@ -46,6 +46,11 @@ def _parser() -> argparse.ArgumentParser:
 
     train = commands.add_parser("train", help="Train, evaluate, and gate model candidates")
     train.add_argument("--config", type=Path, help="Optional YAML configuration path")
+    train.add_argument(
+        "--no-track",
+        action="store_true",
+        help="Build the local model bundle without publishing it to MLflow",
+    )
     return parser
 
 
@@ -85,7 +90,7 @@ def _build_features(month_value: str, config_path: Path | None) -> int:
     return 0
 
 
-def _train(config_path: Path | None) -> int:
+def _train(config_path: Path | None, *, track: bool) -> int:
     try:
         from tripml.training import train_models
     except (ImportError, OSError) as error:
@@ -94,8 +99,18 @@ def _train(config_path: Path | None) -> int:
             "on macOS, Homebrew libomp"
         ) from error
 
-    report = train_models(load_settings(config_path))
-    print(json.dumps(report.model_dump(mode="json"), indent=2, sort_keys=True))
+    settings = load_settings(config_path)
+    if track:
+        try:
+            from tripml.tracking import run_training_workflow
+        except (ImportError, OSError) as error:
+            raise RuntimeError(
+                "MLflow is unavailable; install the 'tracking' extra or use --no-track"
+            ) from error
+        document = run_training_workflow(settings).model_dump(mode="json")
+    else:
+        document = train_models(settings).model_dump(mode="json")
+    print(json.dumps(document, indent=2, sort_keys=True))
     return 0
 
 
@@ -110,7 +125,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "features" and args.features_command == "build":
         return _build_features(args.month, args.config)
     if args.command == "train":
-        return _train(args.config)
+        return _train(args.config, track=not args.no_track)
     raise AssertionError("unreachable command")
 
 

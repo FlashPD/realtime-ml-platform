@@ -69,6 +69,12 @@ app.kubernetes.io/instance: {{ .Release.Name }}
   value: "1"
 - name: TRIPML_INGESTION__DATA_ROOT
   value: /opt/airflow/data
+- name: TRIPML_TRAINING__ARTIFACT_ROOT
+  value: /opt/airflow/data/artifacts/training
+- name: TRIPML_TRACKING__LOCAL_ARTIFACT_ROOT
+  value: /opt/airflow/data/artifacts/mlflow/runs
+- name: TRIPML_TRACKING__TRACKING_URI
+  value: http://{{ include "tripml.fullname" . }}-mlflow:5000
 - name: TRIPML_LINEAGE__DATABASE_URL
   valueFrom:
     secretKeyRef:

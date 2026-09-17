@@ -6,10 +6,11 @@ point-in-time-correct features, event-time stream processing, training/serving p
 model promotion, low-latency serving, closed-loop monitoring, and reproducible operations on
 Kubernetes.
 
-> **Status:** Reproducible training milestone. The package, contracts, CI gates,
+> **Status:** Guarded model-registry milestone. The package, contracts, CI gates,
 > bounded-memory bronze-to-silver ingestion, durable PostgreSQL lineage, Airflow 3 orchestration,
 > leakage-safe dbt-duckdb gold features, deterministic model comparison, and explicit promotion
-> gates are implemented. MLflow tracking and model registration are next.
+> gates are implemented. MLflow tracking, conditional registration, and production-alias protection
+> are also complete; the prediction service is next.
 
 ## Intended architecture
 
@@ -17,7 +18,8 @@ Kubernetes.
 flowchart LR
     TLC[NYC TLC Parquet] --> B[Bronze / Silver / Gold]
     B --> TRAIN[Training + promotion gate]
-    TRAIN --> API[Prediction API]
+    TRAIN --> REG[(MLflow registry)]
+    REG --> API[Prediction API]
     B --> REPLAY[Event-time replayer]
     REPLAY --> BROKER[(Redpanda)]
     BROKER --> STREAM[Stream processor]
@@ -35,22 +37,24 @@ The complete design, delivery phases, service objectives, and acceptance criteri
 
 ## Delivery status and roadmap
 
-The batch path is complete through an independently reproducible promotion decision. "Complete"
-below means implemented, documented, and covered by the repository quality gates; it does not mean
-that a final showcase run has measured the production-shaped objectives yet.
+The batch path is complete through a guarded MLflow production alias. "Complete" below means
+implemented, documented, and covered by the repository quality gates; it does not mean that a final
+showcase run has measured the production-shaped objectives yet.
 
 ### Complete
 
 | Workstream | Delivered evidence |
 |---|---|
 | Foundation and contracts | Installable package, strict configuration, versioned Pydantic event contracts, Ruff, mypy, pytest coverage gate, and CI workflow |
-| Local platform foundation | kind bootstrap and Helm-managed Redpanda, PostgreSQL, Redis, MinIO, and Airflow with persistence, probes, resource boundaries, and smoke tests |
+| Local platform foundation | kind bootstrap and Helm-managed Redpanda, PostgreSQL, Redis, MinIO, Airflow, and MLflow with persistence, probes, resource boundaries, and smoke tests |
 | Bronze-to-silver ingestion | Bounded-memory validation, atomic publication, named quality checks, quarantine behavior, source manifests, and stable trip identifiers |
 | Durable ingestion lineage | PostgreSQL migrations, explicit run-state transitions, normalized quality results, and an optional real-database integration test |
 | Airflow batch orchestration | Quality-gated ingestion followed by gold generation, bounded retries and timeouts, concurrency policy, and DAG component tests |
 | Point-in-time gold features | dbt-duckdb completion-time windows, prior-month boundary context, no-leakage tests, atomic Parquet output, and checksummed manifests |
 | Reproducible training core | Hierarchical median baseline, static and streaming-feature LightGBM candidates, held-out metrics, calibration and latency gates, native model artifacts, integrity verification, and generated model cards |
-| Engineering documentation | Data card and six ADRs covering infrastructure, ingestion, orchestration, feature correctness, and reproducible promotion decisions |
+| Guarded experiment tracking | Separate MLflow runs for all three model paths, checksummed lineage and evidence, idempotent publication, registration only after every gate passes, comparison with the current production model, and rollback-safe production aliases |
+| Scheduled model lifecycle | Manually triggered Airflow training DAG with bounded retries, execution timeout, one active run, and the same tracking workflow used by the CLI |
+| Engineering documentation | Data card and seven ADRs covering infrastructure, ingestion, orchestration, feature correctness, reproducible promotion decisions, and registry safety |
 
 ### Remaining
 
@@ -59,25 +63,24 @@ integration, and documentation. They are ranges rather than deadlines.
 
 | Priority | Workstream | Definition of done | Estimate |
 |---:|---|---|---:|
-| 1 | MLflow registry and training DAG | Log all three model paths and lineage, register passing candidates, protect the production alias on rejection, and run the workflow through Airflow | 2–3 days |
-| 2 | Prediction service | FastAPI model loading, Redis lookup and explicit fallback, prediction publication, health/metrics endpoints, authentication for operator actions, Helm deployment, and HPA | 3–5 days |
-| 3 | Event replay and stream processor | Event-time replayer, registered broker schemas, Bytewax windows and watermarks, late-event policy, Redis writes, checkpoint recovery, and service metrics | 6–8 days |
-| 4 | Offline/online feature parity | Replay a fixture day, compare stream outputs with gold, report mismatch rate and maximum difference, and fail on skew | 1–2 days |
-| 5 | Closed-loop evaluation | Prediction/completion joiner, durable error records, live MAE and coverage, Evidently drift report, and guarded retraining trigger | 4–6 days |
-| 6 | Observability and integration hardening | Prometheus, Grafana, alerts, CI values profile, kind end-to-end workflow, dependency/image scanning, and serving load test | 4–6 days |
-| 7 | Showcase and failure scenarios | Resumable harness, eight planned fault scenarios, objective assertions, raw exports, generated evidence README, and safe teardown | 6–8 days |
-| 8 | Portfolio release polish | Runbooks, measured headline results, architecture and model evidence links, final limitations review, clean-laptop reproduction, and tagged release | 2–3 days |
-|  | **Full remaining scope** | **Everything in the original architecture and acceptance plan** | **28–41 days** |
+| 1 | Prediction service | FastAPI model loading, Redis lookup and explicit fallback, prediction publication, health/metrics endpoints, authentication for operator actions, Helm deployment, and HPA | 3–5 days |
+| 2 | Event replay and stream processor | Event-time replayer, registered broker schemas, Bytewax windows and watermarks, late-event policy, Redis writes, checkpoint recovery, and service metrics | 6–8 days |
+| 3 | Offline/online feature parity | Replay a fixture day, compare stream outputs with gold, report mismatch rate and maximum difference, and fail on skew | 1–2 days |
+| 4 | Closed-loop evaluation | Prediction/completion joiner, durable error records, live MAE and coverage, Evidently drift report, and guarded retraining trigger | 4–6 days |
+| 5 | Observability and integration hardening | Prometheus, Grafana, alerts, CI values profile, kind end-to-end workflow, dependency/image scanning, and serving load test | 4–6 days |
+| 6 | Showcase and failure scenarios | Resumable harness, eight planned fault scenarios, objective assertions, raw exports, generated evidence README, and safe teardown | 6–8 days |
+| 7 | Portfolio release polish | Runbooks, measured headline results, architecture and model evidence links, final limitations review, clean-laptop reproduction, and tagged release | 2–3 days |
+|  | **Full remaining scope** | **Everything in the original architecture and acceptance plan** | **26–38 days** |
 
 ### Calendar view
 
 | Target | Included outcome | Expected time |
 |---|---|---:|
-| Batch-serving portfolio release | MLflow and registry, serving API on kind, basic dashboards, and a real-data model comparison | 9–14 engineer-days, roughly 2–3 full-time weeks |
-| Differentiated streaming release | Batch-serving release plus replay, event-time features, recovery, and offline/online parity | 17–24 engineer-days, roughly 4–5 full-time weeks |
-| Full planned platform | Closed-loop monitoring, all failure scenarios, complete evidence export, and release polish | 28–41 engineer-days, roughly 6–9 full-time weeks |
+| Batch-serving portfolio release | Serving API on kind, basic dashboards, and a real-data model comparison | 7–11 engineer-days, roughly 1.5–2.5 full-time weeks |
+| Differentiated streaming release | Batch-serving release plus replay, event-time features, recovery, and offline/online parity | 15–21 engineer-days, roughly 3–4.5 full-time weeks |
+| Full planned platform | Closed-loop monitoring, all failure scenarios, complete evidence export, and release polish | 26–38 engineer-days, roughly 5–8 full-time weeks |
 
-At approximately 15 hours per week, the full planned platform is roughly 3.5–5.5 months. The main
+At approximately 15 hours per week, the full planned platform is roughly 3.5–5 months. The main
 schedule risks are real-data performance tuning, Bytewax recovery behavior, Kubernetes resource
 pressure on a 16 GB laptop, and integration debugging across the broker, registry, Redis, and
 observability stack. Optional EKS/Terraform work remains outside these estimates and outside the
@@ -188,32 +191,40 @@ make train
 ```
 
 The run compares a hierarchical median baseline, a static-feature LightGBM model, and a LightGBM
-model augmented with rolling zone features. All models use the same held-out month. The streaming
-candidate is promoted only when it satisfies the configured MAE improvement, distance-bucket
-calibration, and single-row inference-latency gates; an existing production-model comparison is
-also enforced when production metrics are supplied.
+model augmented with rolling zone features. All models use the same held-out month. By default, the
+command logs each path as a separate MLflow run, reads the current production alias for the
+incumbent comparison, and registers the streaming candidate only when it satisfies the configured
+MAE improvement, distance-bucket calibration, and single-row inference-latency gates. A rejection
+leaves the registry and production alias unchanged. Use `tripml train --no-track` when only the
+local, reproducible model bundle is needed.
 
 Each content-addressed run under `artifacts/training/<run-id>/` contains the native LightGBM model
 files, serialized baseline, evaluation report, input checksums, artifact checksums, promotion
 decision, and generated model card. Repeating an identical run reuses that immutable bundle. See
 [ADR-0006](docs/adr/0006-reproducible-training-and-promotion.md) for the evaluation and artifact
-boundary.
+boundary and [ADR-0007](docs/adr/0007-guarded-mlflow-registry.md) for tracking and registry safety.
+
+Without configuration overrides, MLflow uses a repository-local SQLite backend and filesystem
+artifact store under `artifacts/mlflow/`. The kind profile instead runs MLflow with PostgreSQL
+metadata and server-proxied artifacts in MinIO.
 
 ## Airflow orchestration
 
-The manually triggered `tripml_ingestion` DAG runs the same orchestrator-independent workflows as
-the CLI. It accepts a `month` parameter, defaulting to `2024-01`, and an optional worker-visible
-`config_path`. The DAG requires `TRIPML_LINEAGE__DATABASE_URL`, limits ingestion to 20 minutes and
-the downstream gold build to 15 minutes, permits only one active run, and uses bounded retries. A
-partition rejected by its quality gate fails without retrying and points operators to its durable
-lineage run; gold is built only after acceptance.
+The manually triggered `tripml_ingestion` and `tripml_training` DAGs run the same
+orchestrator-independent workflows as the CLI. Ingestion accepts a `month` parameter, defaulting to
+`2024-01`, and an optional worker-visible `config_path`. It requires
+`TRIPML_LINEAGE__DATABASE_URL`, limits ingestion to 20 minutes and the downstream gold build to 15
+minutes, permits only one active run, and uses bounded retries. A partition rejected by its quality
+gate fails without retrying and points operators to its durable lineage run; gold is built only
+after acceptance. Training allows one active two-hour DAG run, gives the model task a 90-minute
+timeout, and publishes through the guarded MLflow workflow.
 
-Airflow discovers the thin entry point at `dags/tripml_ingestion.py`; the implementation lives in
-the installable `tripml.airflow_dags` package so it can be type-checked and unit-tested. For local
-development outside Kubernetes, install the orchestration dependency with:
+Airflow discovers thin entry points in `dags/`; the implementations live in the installable
+`tripml.airflow_dags` package so they can be type-checked and unit-tested. To exercise both DAGs
+outside Kubernetes, install their runtime dependencies with:
 
 ```bash
-python -m pip install -e '.[orchestration]'
+python -m pip install -e '.[orchestration,tracking,training,transformation]'
 ```
 
 The local cluster builds an immutable Airflow image containing the project and runs the API server,
@@ -225,6 +236,7 @@ Fernet/JWT/UI credentials, resource boundaries, and component health probes. Acc
 ```bash
 make airflow-password # username: admin
 make airflow-ui       # http://localhost:8080; runs until interrupted
+make mlflow-ui        # http://localhost:5000; runs until interrupted
 ```
 
 The repository tests parse the DAG and exercise its retry and quality-failure behavior without a
@@ -240,18 +252,19 @@ verified, pinned kind and Helm binaries into the ignored `.tools/` directory.
 ```bash
 make helm-lint       # render and validate the chart without a cluster
 make cluster         # create kind and install the infrastructure
-make cluster-test    # rerun data-service, broker, and Airflow smoke tests
+make cluster-test    # rerun data-service, broker, Airflow, and MLflow smoke tests
 make cluster-status # inspect workloads, PVCs, and service endpoints
 make cluster-delete # remove the cluster and its local data
 ```
 
-The local chart currently provisions single-node Redpanda, PostgreSQL, Redis, MinIO, and Airflow
-with health probes, resource requests and limits, persistent volumes, and credentials generated at
-cluster creation. Secrets are never written to the repository or Helm values. MinIO is pinned to
-its final official community image because upstream moved to source-only distribution; that
-trade-off is intentionally limited to the zero-cost local profile. Airflow's simple auth manager is
-likewise limited to the private development cluster; a shared deployment requires a production
-auth manager.
+The local chart currently provisions single-node Redpanda, PostgreSQL, Redis, MinIO, Airflow, and
+MLflow with health probes, resource requests and limits, persistent state where required, and
+credentials generated at cluster creation. Secrets are never written to the repository or Helm
+values. MLflow metadata uses PostgreSQL while artifacts are proxied to a dedicated MinIO bucket.
+MinIO is pinned to its final official community image because upstream moved to source-only
+distribution; that trade-off is intentionally limited to the zero-cost local profile. Airflow's
+simple auth manager is likewise limited to the private development cluster; a shared deployment
+requires a production auth manager.
 
 The packaging rationale and production boundary are recorded in
 [ADR-0001](docs/adr/0001-local-infrastructure-packaging.md).

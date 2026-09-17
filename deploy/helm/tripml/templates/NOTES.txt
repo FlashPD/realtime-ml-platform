@@ -12,5 +12,10 @@ Internal service endpoints:
 Run `make airflow-ui` to forward the Airflow UI to http://localhost:8080 and
 `make airflow-password` to retrieve the generated local admin password.
 {{- end }}
+{{- if .Values.mlflow.enabled }}
+  MLflow:     http://{{ include "tripml.fullname" . }}-mlflow:5000
+
+Run `make mlflow-ui` to forward the MLflow UI to http://localhost:5000.
+{{- end }}
 
 Credentials are stored in the pre-created {{ .Values.credentialsSecret }} Secret.

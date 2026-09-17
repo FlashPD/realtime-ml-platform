@@ -92,6 +92,9 @@ spec:
           {{- if .Values.airflow.enabled }}
           curl --fail --silent "http://{{ include "tripml.fullname" . }}-airflow:8080/api/v2/monitor/health" >/dev/null
           {{- end }}
+          {{- if .Values.mlflow.enabled }}
+          curl --fail --silent "http://{{ include "tripml.fullname" . }}-mlflow:5000/health" >/dev/null
+          {{- end }}
           rpk topic delete "${topic}" -X brokers="${broker}" >/dev/null 2>&1 || true
           rpk topic create "${topic}" -X brokers="${broker}"
           printf 'platform-ready\n' | rpk topic produce "${topic}" -X brokers="${broker}"

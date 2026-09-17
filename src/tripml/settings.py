@@ -100,6 +100,14 @@ class LineageSettings(ImmutableModel):
     auto_migrate: bool = True
 
 
+class TrackingSettings(ImmutableModel):
+    tracking_uri: str = "sqlite:///artifacts/mlflow/mlflow.db"
+    local_artifact_root: Path = Path("artifacts/mlflow/runs")
+    experiment_name: str = "tripml-training"
+    registered_model_name: str = "tripml-trip-duration"
+    production_alias: str = "production"
+
+
 class PlatformSettings(BaseSettings):
     """Root settings object. Environment variables take precedence over YAML."""
 
@@ -116,6 +124,7 @@ class PlatformSettings(BaseSettings):
     serving: ServingSettings = Field(default_factory=ServingSettings)
     ingestion: IngestionSettings = Field(default_factory=IngestionSettings)
     lineage: LineageSettings = Field(default_factory=LineageSettings)
+    tracking: TrackingSettings = Field(default_factory=TrackingSettings)
 
     @classmethod
     def settings_customise_sources(
