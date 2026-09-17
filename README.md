@@ -33,6 +33,56 @@ flowchart LR
 The complete design, delivery phases, service objectives, and acceptance criteria are in the
 [architecture plan](arch_plan/realtime-ml-platform-plan.md).
 
+## Delivery status and roadmap
+
+The batch path is complete through an independently reproducible promotion decision. "Complete"
+below means implemented, documented, and covered by the repository quality gates; it does not mean
+that a final showcase run has measured the production-shaped objectives yet.
+
+### Complete
+
+| Workstream | Delivered evidence |
+|---|---|
+| Foundation and contracts | Installable package, strict configuration, versioned Pydantic event contracts, Ruff, mypy, pytest coverage gate, and CI workflow |
+| Local platform foundation | kind bootstrap and Helm-managed Redpanda, PostgreSQL, Redis, MinIO, and Airflow with persistence, probes, resource boundaries, and smoke tests |
+| Bronze-to-silver ingestion | Bounded-memory validation, atomic publication, named quality checks, quarantine behavior, source manifests, and stable trip identifiers |
+| Durable ingestion lineage | PostgreSQL migrations, explicit run-state transitions, normalized quality results, and an optional real-database integration test |
+| Airflow batch orchestration | Quality-gated ingestion followed by gold generation, bounded retries and timeouts, concurrency policy, and DAG component tests |
+| Point-in-time gold features | dbt-duckdb completion-time windows, prior-month boundary context, no-leakage tests, atomic Parquet output, and checksummed manifests |
+| Reproducible training core | Hierarchical median baseline, static and streaming-feature LightGBM candidates, held-out metrics, calibration and latency gates, native model artifacts, integrity verification, and generated model cards |
+| Engineering documentation | Data card and six ADRs covering infrastructure, ingestion, orchestration, feature correctness, and reproducible promotion decisions |
+
+### Remaining
+
+Estimates are focused engineer-days for one engineer and include implementation, tests, local
+integration, and documentation. They are ranges rather than deadlines.
+
+| Priority | Workstream | Definition of done | Estimate |
+|---:|---|---|---:|
+| 1 | MLflow registry and training DAG | Log all three model paths and lineage, register passing candidates, protect the production alias on rejection, and run the workflow through Airflow | 2–3 days |
+| 2 | Prediction service | FastAPI model loading, Redis lookup and explicit fallback, prediction publication, health/metrics endpoints, authentication for operator actions, Helm deployment, and HPA | 3–5 days |
+| 3 | Event replay and stream processor | Event-time replayer, registered broker schemas, Bytewax windows and watermarks, late-event policy, Redis writes, checkpoint recovery, and service metrics | 6–8 days |
+| 4 | Offline/online feature parity | Replay a fixture day, compare stream outputs with gold, report mismatch rate and maximum difference, and fail on skew | 1–2 days |
+| 5 | Closed-loop evaluation | Prediction/completion joiner, durable error records, live MAE and coverage, Evidently drift report, and guarded retraining trigger | 4–6 days |
+| 6 | Observability and integration hardening | Prometheus, Grafana, alerts, CI values profile, kind end-to-end workflow, dependency/image scanning, and serving load test | 4–6 days |
+| 7 | Showcase and failure scenarios | Resumable harness, eight planned fault scenarios, objective assertions, raw exports, generated evidence README, and safe teardown | 6–8 days |
+| 8 | Portfolio release polish | Runbooks, measured headline results, architecture and model evidence links, final limitations review, clean-laptop reproduction, and tagged release | 2–3 days |
+|  | **Full remaining scope** | **Everything in the original architecture and acceptance plan** | **28–41 days** |
+
+### Calendar view
+
+| Target | Included outcome | Expected time |
+|---|---|---:|
+| Batch-serving portfolio release | MLflow and registry, serving API on kind, basic dashboards, and a real-data model comparison | 9–14 engineer-days, roughly 2–3 full-time weeks |
+| Differentiated streaming release | Batch-serving release plus replay, event-time features, recovery, and offline/online parity | 17–24 engineer-days, roughly 4–5 full-time weeks |
+| Full planned platform | Closed-loop monitoring, all failure scenarios, complete evidence export, and release polish | 28–41 engineer-days, roughly 6–9 full-time weeks |
+
+At approximately 15 hours per week, the full planned platform is roughly 3.5–5.5 months. The main
+schedule risks are real-data performance tuning, Bytewax recovery behavior, Kubernetes resource
+pressure on a 16 GB laptop, and integration debugging across the broker, registry, Redis, and
+observability stack. Optional EKS/Terraform work remains outside these estimates and outside the
+release scope.
+
 ## Quick start
 
 Requires Python 3.12.
