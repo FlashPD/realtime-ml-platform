@@ -7,6 +7,7 @@ import json
 from importlib.resources import files
 from pathlib import Path
 from typing import Any, Literal, Self
+from urllib.parse import urlsplit
 
 import yaml
 from pydantic import (
@@ -16,6 +17,7 @@ from pydantic import (
     PositiveFloat,
     PositiveInt,
     SecretStr,
+    field_validator,
     model_validator,
 )
 from pydantic_settings import (
@@ -84,6 +86,20 @@ class StreamingSettings(ImmutableModel):
 class ServingSettings(ImmutableModel):
     feature_staleness_limit_seconds: PositiveInt = 10 * 60
     p95_latency_objective_ms: PositiveFloat = 50.0
+    redis_url: SecretStr | None = Field(default=None, exclude=True)
+    redis_timeout_seconds: float = Field(default=0.01, gt=0, le=1, allow_inf_nan=False)
+    redis_max_connections: PositiveInt = 32
+
+    @field_validator("redis_url")
+    @classmethod
+    def redis_url_has_no_option_overrides(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is not None:
+            parsed = urlsplit(value.get_secret_value())
+            if parsed.scheme not in {"redis", "rediss"} or not parsed.hostname:
+                raise ValueError("redis_url must use redis:// or rediss:// with a hostname")
+            if parsed.query or parsed.fragment:
+                raise ValueError("redis_url must not override connection options")
+        return value
 
 
 class IngestionSettings(ImmutableModel):

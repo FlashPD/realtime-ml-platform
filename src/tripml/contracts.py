@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Annotated, Any, Literal, Self
 from uuid import UUID, uuid4
@@ -118,6 +118,32 @@ class ZoneWindowFeatures(ContractModel):
         return self
 
 
+class OnlineZoneWindowFeatures(ZoneWindowFeatures):
+    """Completed-trip aggregates over [window_start, window_end), partitioned by zone role."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
+    zone_role: Literal["pickup", "dropoff"]
+    feature_model_version: Literal["gold-features-v1"] = "gold-features-v1"
+    source_max_event_time: AwareDateTime | None
+
+    @model_validator(mode="after")
+    def window_and_sources_are_consistent(self) -> Self:
+        seconds = 900 if self.window_kind is WindowKind.SHORT else 3600
+        if self.window_end - self.window_start != timedelta(seconds=seconds):
+            raise ValueError("window duration must match window_kind")
+        if self.trip_count == 0:
+            if self.source_max_event_time is not None or any(
+                (self.mean_duration_seconds, self.mean_speed_mph, self.mean_distance_miles)
+            ):
+                raise ValueError("empty windows require no source timestamp and zero means")
+        elif (
+            self.source_max_event_time is None
+            or not self.window_start <= self.source_max_event_time < self.window_end
+        ):
+            raise ValueError("source event must be inside the exclusive-end window")
+        return self
+
+
 class QualityCheckResult(ContractModel):
     partition: Annotated[str, Field(min_length=1)]
     rule: Annotated[str, Field(min_length=1)]
@@ -210,6 +236,7 @@ CONTRACTS: dict[str, type[BaseModel]] = {
     "prediction-v1": Prediction,
     "ground-truth-v1": GroundTruth,
     "zone-window-features-v1": ZoneWindowFeatures,
+    "online-zone-window-features-v1": OnlineZoneWindowFeatures,
     "quality-check-result-v1": QualityCheckResult,
     "promotion-decision-v1": PromotionDecision,
     "drift-report-v1": DriftReport,

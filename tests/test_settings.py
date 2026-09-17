@@ -1,9 +1,9 @@
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 
-from tripml.settings import PlatformSettings, load_settings, settings_as_dict
+from tripml.settings import PlatformSettings, ServingSettings, load_settings, settings_as_dict
 
 
 def test_packaged_configuration_is_valid_and_stable() -> None:
@@ -73,3 +73,22 @@ def test_settings_are_immutable() -> None:
     settings = PlatformSettings()
     with pytest.raises(ValidationError):
         settings.serving.p95_latency_objective_ms = 100
+
+
+def test_redis_credentials_are_excluded_from_output_and_fingerprint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original = load_settings()
+    monkeypatch.setenv("TRIPML_SERVING__REDIS_URL", "redis://:do-not-print@localhost:6379/0")
+    configured = load_settings()
+    assert configured.serving.redis_url is not None
+    assert "redis_url" not in settings_as_dict(configured)["serving"]
+    assert configured.fingerprint == original.fingerprint
+
+
+@pytest.mark.parametrize(
+    "url", ["http://localhost", "redis:///0", "redis://localhost?socket_timeout=20"]
+)
+def test_redis_url_cannot_override_timeout_policy(url: str) -> None:
+    with pytest.raises(ValidationError):
+        ServingSettings(redis_url=SecretStr(url))

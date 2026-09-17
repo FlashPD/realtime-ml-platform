@@ -37,6 +37,7 @@ serving = [
   "fastapi>=0.136.3,<1",
   "uvicorn>=0.53,<1",
   "prometheus-client>=0.24,<1",
+  "redis>=6.4,<7",
 ]
 dev = [
   "tripml[serving]",

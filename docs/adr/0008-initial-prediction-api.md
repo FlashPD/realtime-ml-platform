@@ -3,6 +3,9 @@
 - Status: Accepted
 - Date: 2026-09-16
 
+The initial decision below is extended by [ADR-0009](0009-online-feature-serving.md), which adds
+Redis snapshot validation and streaming-model inference while retaining the static fallback.
+
 ## Context
 
 The batch pipeline already publishes a guarded streaming-feature model to an MLflow production

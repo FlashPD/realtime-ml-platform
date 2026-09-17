@@ -158,12 +158,14 @@ def build_gold_features(
 ) -> FeatureBuildReport:
     """Build and atomically publish one tested monthly gold feature partition."""
 
+    streaming = settings.streaming
+    if streaming.short_window_seconds != 900 or streaming.long_window_seconds != 3600:
+        raise FeatureBuildError("gold-features-v1 requires 900/3600-second windows")
     month = YearMonth.parse(month_value)
     inputs = _feature_inputs(settings.ingestion.data_root, month)
     output_path, manifest_path = _gold_paths(settings.ingestion.data_root, month)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     project_dir = Path(str(files("tripml").joinpath("dbt")))
-    streaming = settings.streaming
 
     with tempfile.TemporaryDirectory(prefix="tripml-dbt-") as temporary_directory:
         temporary_root = Path(temporary_directory)

@@ -6,13 +6,13 @@ point-in-time-correct features, event-time stream processing, training/serving p
 model promotion, low-latency serving, closed-loop monitoring, and reproducible operations on
 Kubernetes.
 
-> **Status:** Initial prediction API milestone. The package, contracts, CI gates,
+> **Status:** Online-feature serving milestone. The package, contracts, CI gates,
 > bounded-memory bronze-to-silver ingestion, durable PostgreSQL lineage, Airflow 3 orchestration,
 > leakage-safe dbt-duckdb gold features, deterministic model comparison, and explicit promotion
 > gates are implemented. MLflow tracking, conditional registration, and production-alias protection
-> are also complete. A local prediction API now serves the verified static model from the production
-> bundle with explicit fallback metadata, health endpoints, and Prometheus metrics. Online features,
-> prediction publication, and the serving deployment are next.
+> are also complete. The prediction API selects the verified streaming model when Redis snapshots
+> pass event-time checks, with explicit static fallback, health endpoints, and Prometheus metrics.
+> The stream producer, prediction publication, and the serving deployment are still pending.
 
 ## Intended architecture
 
@@ -57,7 +57,8 @@ showcase run has measured the production-shaped objectives yet.
 | Guarded experiment tracking | Separate MLflow runs for all three model paths, checksummed lineage and evidence, idempotent publication, registration only after every gate passes, comparison with the current production model, and rollback-safe production aliases |
 | Scheduled model lifecycle | Manually triggered Airflow training DAG with bounded retries, execution timeout, one active run, and the same tracking workflow used by the CLI |
 | Initial prediction API | Verified MLflow or local-bundle loading, native static-model inference, New York calendar parity, explicit fallback provenance, health/readiness, Prometheus metrics, and a training-to-registry-to-HTTP integration test |
-| Engineering documentation | Data card and eight ADRs covering infrastructure, ingestion, orchestration, feature correctness, reproducible promotion decisions, registry safety, and the serving boundary |
+| Online-feature serving | Versioned zone-role Redis keys, validated exclusive-end snapshots, streaming inference, socket timeouts without retries, lookup-outcome metrics, static degradation, and a real-Redis integration test in CI |
+| Engineering documentation | Data card and nine ADRs covering infrastructure, ingestion, orchestration, feature correctness, reproducible promotion decisions, registry safety, and serving |
 
 ### Remaining
 
@@ -66,7 +67,7 @@ integration, and documentation. They are ranges rather than deadlines.
 
 | Priority | Workstream | Definition of done | Estimate |
 |---:|---|---|---:|
-| 1 | Complete prediction service | Add Redis lookup and streaming inference to the initial API, prediction publication, authentication for any operator actions, Helm deployment, and HPA | 3–5 days |
+| 1 | Complete prediction service | Prediction publication, authentication for any operator actions, Helm deployment, and HPA | 3–5 days |
 | 2 | Event replay and stream processor | Event-time replayer, registered broker schemas, Bytewax windows and watermarks, late-event policy, Redis writes, checkpoint recovery, and service metrics | 6–8 days |
 | 3 | Offline/online feature parity | Replay a fixture day, compare stream outputs with gold, report mismatch rate and maximum difference, and fail on skew | 1–2 days |
 | 4 | Closed-loop evaluation | Prediction/completion joiner, durable error records, live MAE and coverage, Evidently drift report, and guarded retraining trigger | 4–6 days |
@@ -177,6 +178,8 @@ The dbt-duckdb model computes 15- and 60-minute pickup-zone statistics and a 60-
 dropoff-zone count from trips that completed strictly before each pickup. It reads the preceding
 silver month when available so lookbacks remain correct at month boundaries. A completion at the
 exact pickup timestamp is excluded, preventing target leakage from simultaneous events.
+The `gold-features-v1` schema requires 900/3600-second windows; changing those durations requires a
+new feature definition rather than reusing columns labelled `15m` and `60m`.
 
 The tested table is atomically published to
 `data/gold/yellow/month=YYYY-MM/training_features.parquet`. Its adjacent manifest records input and
@@ -228,7 +231,7 @@ tripml serve --bundle artifacts/training/<run-id>
 
 Local-bundle mode accepts unpromoted models and reports a null registry version. The default registry
 mode requires a finished, promoted streaming run and its matching static sibling. Startup verifies
-artifact checksums, feature order, and a warm-up prediction before the process becomes ready. Missing,
+both models' checksums, feature order, and warm-up predictions before the process becomes ready. Missing,
 corrupt, or inconsistent artifacts abort startup. The alias is resolved once; restart the process to
 adopt a different version. Registry availability is not a request-time dependency.
 
@@ -242,8 +245,8 @@ curl --fail http://127.0.0.1:8000/readyz
 curl --fail http://127.0.0.1:8000/metrics
 ```
 
-This initial API always uses the static-feature LightGBM model: `feature_fallback` is `true`,
-`feature_timestamps` is empty, and `model_version` is `<training-run-id>-static`. The returned
+Without Redis configuration, the API uses the static-feature LightGBM model: `feature_fallback` is
+`true`, `feature_timestamps` is empty, and `model_version` is `<training-run-id>-static`. The returned
 `features_used` records the exact model inputs. Pickup time must include an offset; calendar features
 convert to New York time and match gold's Sunday-zero hour-of-week convention. Distances must be
 finite and nonnegative; invalid inputs return HTTP 422. Inference failures return HTTP 503.
@@ -253,10 +256,43 @@ provides the interactive API contract, and `/metrics` exposes response counters,
 a latency histogram with a 50 ms bucket. Metrics are per process; the CLI runs one Uvicorn worker.
 Latency objectives have **not** yet been measured under serving load.
 
-The static sibling has held-out evaluation metrics but is not independently promotion-gated. Redis
-lookup, streaming-model inference, broker publication, operator actions, and a Kubernetes serving
-deployment are not implemented in this slice. Predictions currently exist only in the HTTP response;
-they are not durably logged. See [ADR-0008](docs/adr/0008-initial-prediction-api.md) for these boundaries.
+Enable online feature reads by pointing the API to a Redis instance populated with the snapshot
+contract described in [ADR-0009](docs/adr/0009-online-feature-serving.md):
+
+```bash
+TRIPML_SERVING__REDIS_URL='redis://localhost:6379/0' tripml serve
+```
+
+Redis credentials can be supplied in that secret URL, which is excluded from configuration output.
+The client performs one `MGET` for pickup 15-minute, pickup 60-minute, and dropoff 60-minute snapshots.
+All must have matching cutoffs, correct identities and feature versions, valid source timestamps,
+and cutoffs no later than pickup and no more than 600 seconds behind it. Freshness uses **pickup event
+time**, so historical replay does not become stale solely because it runs today. The default connect
+and socket timeouts are each 10 ms with retries disabled; these are socket limits, not a measured
+end-to-end request deadline.
+
+Accepted snapshots select `<training-run-id>-streaming`, return `feature_fallback=false`, and record
+each rolling feature's exclusive window-end timestamp. Missing, stale, future, inconsistent, corrupt,
+or unavailable snapshots select the static model. Empty pickup windows also fall back because their
+gold means are null; an empty dropoff window supplies a valid zero count. `/readyz` reports configured
+mode and both model versions; Redis failure does not remove a service capable of static inference
+from readiness. The `tripml_feature_lookup_total{outcome=...}` counter and
+`tripml_feature_age_seconds` histogram make selection reasons and accepted snapshot lag observable.
+
+The Redis protocol test runs automatically in CI. Run it locally against a **dedicated disposable
+database**; it writes and removes the documented feature keys:
+
+```bash
+TRIPML_TEST_REDIS_URL='redis://127.0.0.1:6379/15' \
+  pytest tests/integration/test_online_redis.py --no-cov
+```
+
+The static sibling has held-out evaluation metrics but is not independently promotion-gated. The
+stream producer, broker publication, operator actions, and Kubernetes serving deployment remain
+pending. Predictions currently exist only in the HTTP response and are not durably logged. Lagged
+Redis snapshots have not yet passed offline/online parity tests. See
+[ADR-0008](docs/adr/0008-initial-prediction-api.md) for the original serving boundary and ADR-0009
+for the online read contract.
 
 ## Airflow orchestration
 

@@ -27,6 +27,8 @@ streaming:
 serving:
   feature_staleness_limit_seconds: 600
   p95_latency_objective_ms: 50.0
+  redis_timeout_seconds: 0.01
+  redis_max_connections: 32
 
 ingestion:
   data_root: data

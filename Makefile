@@ -41,7 +41,7 @@ features: ## Build point-in-time gold features (MONTH=YYYY-MM)
 train: ## Train, compare, and promotion-gate model candidates
 	$(PYTHON) -m tripml train
 
-serve: ## Serve the production bundle's static fallback on localhost:8000
+serve: ## Serve production ETA predictions with optional Redis features
 	$(PYTHON) -m tripml serve
 
 tools: ## Install pinned kind and Helm binaries into .tools/bin

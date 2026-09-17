@@ -12,6 +12,16 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    services:
+      redis:
+        image: redis:8.8.0-alpine3.23
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -25,7 +35,8 @@ jobs:
       - name: Type check
         run: python -m mypy src
       - name: Test
+        env:
+          TRIPML_TEST_REDIS_URL: redis://127.0.0.1:6379/15
         run: python -m pytest
       - name: Validate Helm chart
         run: make helm-lint
-

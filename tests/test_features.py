@@ -8,11 +8,20 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from tripml.features import FeatureSourceError, build_gold_features
+from tripml.features import FeatureBuildError, FeatureSourceError, build_gold_features
 from tripml.ingestion import CONTRACT_VERSION, SILVER_SCHEMA, YearMonth
 from tripml.settings import IngestionSettings, PlatformSettings, StreamingSettings
 
 BUILT_AT = datetime(2024, 2, 1, tzinfo=UTC)
+
+
+def test_named_gold_windows_cannot_silently_change_semantics(tmp_path: Path) -> None:
+    settings = PlatformSettings(
+        ingestion=IngestionSettings(data_root=tmp_path),
+        streaming=StreamingSettings(short_window_seconds=600),
+    )
+    with pytest.raises(FeatureBuildError, match="900/3600"):
+        build_gold_features("2024-01", settings=settings)
 
 
 def _trip(

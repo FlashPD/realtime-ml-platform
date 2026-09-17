@@ -1,4 +1,4 @@
-"""Verified, immutable model loading and the first batch-serving API slice."""
+"""Verified model serving with event-time Redis features and static degradation."""
 
 from __future__ import annotations
 
@@ -30,6 +30,7 @@ from prometheus_client import (
 from starlette.middleware.base import RequestResponseEndpoint
 
 from tripml.contracts import ETARequest, FeatureValue, Prediction, PromotionOutcome
+from tripml.online_features import FeatureLookup, LookupOutcome, OnlineFeatures, RedisFeatureStore
 from tripml.settings import PlatformSettings
 from tripml.tracking import create_client
 from tripml.training import STATIC_FEATURES, STREAMING_FEATURES, TrainingRunReport
@@ -64,31 +65,43 @@ def _verified_bytes(path: Path, expected: str) -> bytes:
 
 @dataclass(frozen=True)
 class ServingModel:
-    """One startup snapshot; the static sibling is explicitly identified as a fallback."""
+    """One startup snapshot containing the streaming model and its static sibling."""
 
     booster: lgb.Booster
     model_version: str
     registry_version: str | None
+    streaming_booster: lgb.Booster | None = None
+    streaming_version: str | None = None
 
-    def predict(self, request: ETARequest) -> Prediction:
+    def predict(self, request: ETARequest, online: OnlineFeatures | None = None) -> Prediction:
         features = static_features(request)
-        matrix = np.array([[features[name] for name in STATIC_FEATURES]], dtype=np.float64)
-        estimate = float(self.booster.predict(matrix, num_threads=1)[0])
+        booster = self.booster
+        version = self.model_version
+        feature_names: tuple[str, ...] = STATIC_FEATURES
+        if online is not None:
+            if self.streaming_booster is None or self.streaming_version is None:
+                raise ServingError("streaming model is not loaded")
+            features.update(online.values)
+            booster = self.streaming_booster
+            version = self.streaming_version
+            feature_names += STREAMING_FEATURES
+        matrix = np.array([[features[name] for name in feature_names]], dtype=np.float64)
+        estimate = float(booster.predict(matrix, num_threads=1)[0])
         if not math.isfinite(estimate) or estimate <= 0:
             raise ServingError("model returned an invalid duration")
         return Prediction(
             trip_id=request.trip_id,
-            model_version=self.model_version,
+            model_version=version,
             features_used=features,
-            feature_timestamps={},
-            feature_fallback=True,
+            feature_timestamps=online.timestamps if online is not None else {},
+            feature_fallback=online is None,
             estimated_duration_seconds=estimate,
             served_at=datetime.now(UTC),
         )
 
 
-def _load_static(
-    report: TrainingRunReport, path: Path, *, registry_version: str | None
+def _load_models(
+    report: TrainingRunReport, path: Path, streaming_path: Path, *, registry_version: str | None
 ) -> ServingModel:
     if report.static_features != STATIC_FEATURES or report.streaming_features != STREAMING_FEATURES:
         raise ServingError("unsupported training feature schema")
@@ -96,17 +109,41 @@ def _load_static(
     booster = lgb.Booster(model_str=content.decode("utf-8"))
     if tuple(booster.feature_name()) != STATIC_FEATURES:
         raise ServingError("native model feature order does not match the training contract")
-    model = ServingModel(booster, f"{report.run_id}-static", registry_version)
+    streaming_content = _verified_bytes(streaming_path, report.streaming_model_sha256)
+    streaming_booster = lgb.Booster(model_str=streaming_content.decode("utf-8"))
+    if tuple(streaming_booster.feature_name()) != STATIC_FEATURES + STREAMING_FEATURES:
+        raise ServingError("native streaming feature order does not match the training contract")
+    if any(item.feature_model_version != "gold-features-v1" for item in report.inputs):
+        raise ServingError("unsupported gold feature model version")
+    model = ServingModel(
+        booster,
+        f"{report.run_id}-static",
+        registry_version,
+        streaming_booster,
+        f"{report.run_id}-streaming",
+    )
     # Warm the same prediction path before becoming ready, including output validation.
+    probe = ETARequest(
+        trip_id="startup-probe",
+        pickup_zone_id=1,
+        dropoff_zone_id=2,
+        pickup_time=datetime(2024, 1, 1, tzinfo=UTC),
+        trip_distance_miles=3,
+        passenger_count=1,
+    )
+    model.predict(probe)
     model.predict(
-        ETARequest(
-            trip_id="startup-probe",
-            pickup_zone_id=1,
-            dropoff_zone_id=2,
-            pickup_time=datetime(2024, 1, 1, tzinfo=UTC),
-            trip_distance_miles=3,
-            passenger_count=1,
-        )
+        probe,
+        OnlineFeatures(
+            values={
+                "pu_zone_trips_15m": 1,
+                "pu_zone_mean_speed_15m": 10,
+                "pu_zone_mean_duration_60m": 600,
+                "do_zone_trips_60m": 1,
+            },
+            timestamps=dict.fromkeys(STREAMING_FEATURES, probe.pickup_time),
+            age_seconds=0,
+        ),
     )
     return model
 
@@ -116,7 +153,9 @@ def load_local_model(bundle: Path) -> ServingModel:
 
     report = TrainingRunReport.model_validate_json((bundle / "manifest.json").read_bytes())
     # Resolve fixed filenames inside the supplied bundle, never embedded training-machine paths.
-    return _load_static(report, bundle / "static-model.txt", registry_version=None)
+    return _load_models(
+        report, bundle / "static-model.txt", bundle / "streaming-model.txt", registry_version=None
+    )
 
 
 def load_production_model(
@@ -154,7 +193,6 @@ def load_production_model(
         streaming_path = Path(
             active.download_artifacts(run.info.run_id, "model/streaming-model.txt", temporary)
         )
-        _verified_bytes(streaming_path, report.streaming_model_sha256)
         siblings = active.search_runs(
             [run.info.experiment_id],
             filter_string=(
@@ -174,7 +212,7 @@ def load_production_model(
         path = Path(
             active.download_artifacts(sibling.info.run_id, "model/static-model.txt", temporary)
         )
-        return _load_static(report, path, registry_version=str(version.version))
+        return _load_models(report, path, streaming_path, registry_version=str(version.version))
 
 
 def create_app(
@@ -182,17 +220,28 @@ def create_app(
     *,
     bundle: Path | None = None,
     model_loader: Callable[[], ServingModel] | None = None,
+    feature_store: RedisFeatureStore | None = None,
 ) -> FastAPI:
     """Build an isolated app; loading failure aborts startup and never reports readiness."""
 
     active_settings = settings or PlatformSettings()
     model: ServingModel | None = None
+    store = feature_store
     registry = CollectorRegistry()
     requests = Counter(
         "tripml_prediction_requests", "Prediction HTTP responses", ["status"], registry=registry
     )
     fallbacks = Counter(
         "tripml_feature_fallback", "Predictions served with the static fallback", registry=registry
+    )
+    lookups = Counter(
+        "tripml_feature_lookup", "Online feature lookups by outcome", ["outcome"], registry=registry
+    )
+    feature_age = Histogram(
+        "tripml_feature_age_seconds",
+        "Accepted snapshot age relative to pickup event time",
+        buckets=(0, 1, 5, 15, 30, 60, 120, 300, 600),
+        registry=registry,
     )
     latency = Histogram(
         "tripml_prediction_request_duration_seconds",
@@ -203,7 +252,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        nonlocal model
+        nonlocal model, store
         del app
         if model_loader is not None:
             model = model_loader()
@@ -212,9 +261,19 @@ def create_app(
         else:
             model = load_production_model(active_settings)
         try:
+            if store is None and active_settings.serving.redis_url is not None:
+                if (
+                    active_settings.streaming.short_window_seconds != 900
+                    or active_settings.streaming.long_window_seconds != 3600
+                ):
+                    raise ServingError("online features require 900/3600-second windows")
+                store = RedisFeatureStore.from_settings(active_settings.serving)
             yield
         finally:
             model = None
+            if store is not None and feature_store is None:
+                store.close()
+                store = None
 
     app = FastAPI(title="TripML Prediction API", version="0.1.0", lifespan=lifespan)
 
@@ -256,8 +315,9 @@ def create_app(
             raise HTTPException(status_code=503, detail="model is not ready")
         return {
             "status": "ready",
-            "mode": "static_fallback",
+            "mode": "online_with_fallback" if store is not None else "static_fallback",
             "model_version": model.model_version,
+            "streaming_model_version": model.streaming_version,
             "registry_version": model.registry_version,
         }
 
@@ -270,11 +330,20 @@ def create_app(
         if model is None:
             raise HTTPException(status_code=503, detail="model is not ready")
         try:
-            prediction = model.predict(request)
+            lookup = (
+                store.lookup(request)
+                if store is not None
+                else FeatureLookup(LookupOutcome.DISABLED)
+            )
+            lookups.labels(outcome=lookup.outcome.value).inc()
+            if lookup.features is not None:
+                feature_age.observe(lookup.features.age_seconds)
+            prediction = model.predict(request, lookup.features)
         except Exception as error:
             logger.exception("prediction failed")
             raise HTTPException(status_code=503, detail="prediction is unavailable") from error
-        fallbacks.inc()
+        if prediction.feature_fallback:
+            fallbacks.inc()
         return prediction
 
     return app

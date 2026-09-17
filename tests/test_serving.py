@@ -15,8 +15,12 @@ import pyarrow.parquet as pq
 import pytest
 from fastapi.testclient import TestClient
 from mlflow import MlflowClient
+from pydantic import SecretStr
+from redis import Redis
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
-from tripml.contracts import ETARequest, Prediction, PromotionOutcome
+from tripml.contracts import ETARequest, OnlineZoneWindowFeatures, Prediction, PromotionOutcome
+from tripml.online_features import RedisFeatureStore
 from tripml.serving import (
     ServingError,
     ServingModel,
@@ -30,6 +34,8 @@ from tripml.settings import (
     ModelSettings,
     PlatformSettings,
     PromotionGateSettings,
+    ServingSettings,
+    StreamingSettings,
     TrackingSettings,
     TrainingSettings,
 )
@@ -334,3 +340,94 @@ def test_registry_alias_is_resolved_once_and_model_survives_registry_outage(
     assert model.registry_version == "7"
     assert model.predict(ETARequest.model_validate(PAYLOAD)).estimated_duration_seconds > 0
     client.get_model_version_by_alias.assert_called_once()
+
+
+def test_http_streaming_inference_matches_native_model_and_falls_back_on_outage(
+    bundle: Path,
+    online_snapshots: tuple[OnlineZoneWindowFeatures, ...],
+) -> None:
+    redis = MagicMock(spec=Redis)
+    redis.mget.return_value = [item.model_dump_json() for item in online_snapshots]
+    store = RedisFeatureStore(redis, ServingSettings())
+    expected = lgb.Booster(model_file=str(bundle / "streaming-model.txt")).predict(
+        np.array([[161, 236, 36, 3.2, 2, 5, 12, 600, 7]]), num_threads=1
+    )[0]
+    with TestClient(create_app(bundle=bundle, feature_store=store)) as client:
+        ready = client.get("/readyz").json()
+        assert ready["mode"] == "online_with_fallback"
+        response = client.post("/v1/eta", json=PAYLOAD)
+        assert response.status_code == 200
+        prediction = Prediction.model_validate(response.json())
+        assert prediction.estimated_duration_seconds == pytest.approx(expected)
+        assert prediction.model_version == ready["streaming_model_version"]
+        assert prediction.feature_fallback is False
+        assert len(prediction.features_used) == 9
+        assert len(prediction.feature_timestamps) == 4
+        assert set(prediction.feature_timestamps.values()) == {online_snapshots[0].window_end}
+        redis.mget.side_effect = RedisTimeoutError("unavailable")
+        fallback = client.post("/v1/eta", json=PAYLOAD).json()
+        assert fallback["model_version"] == ready["model_version"]
+        assert fallback["feature_fallback"] is True
+        assert fallback["feature_timestamps"] == {}
+        assert client.get("/readyz").status_code == 200
+        metrics = client.get("/metrics").text
+        assert 'tripml_feature_lookup_total{outcome="fresh"} 1.0' in metrics
+        assert 'tripml_feature_lookup_total{outcome="unavailable"} 1.0' in metrics
+        assert "tripml_feature_fallback_total 1.0" in metrics
+        assert "tripml_feature_age_seconds_count 1.0" in metrics
+
+
+def test_configured_redis_pool_is_closed_on_shutdown(
+    bundle: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = MagicMock(spec=RedisFeatureStore)
+    monkeypatch.setattr(RedisFeatureStore, "from_settings", lambda _settings: store)
+    settings = PlatformSettings(serving=ServingSettings(redis_url=SecretStr("redis://localhost")))
+    with TestClient(create_app(settings, bundle=bundle)) as client:
+        assert client.get("/readyz").json()["mode"] == "online_with_fallback"
+    store.close.assert_called_once()
+
+
+def test_nonstandard_windows_cannot_use_online_feature_schema(bundle: Path) -> None:
+    settings = PlatformSettings(
+        serving=ServingSettings(redis_url=SecretStr("redis://localhost")),
+        streaming=StreamingSettings(short_window_seconds=600),
+    )
+    with (
+        pytest.raises(ServingError, match="900/3600"),
+        TestClient(create_app(settings, bundle=bundle)),
+    ):
+        pytest.fail("incompatible windows must not start")
+
+
+def test_corrupt_streaming_model_prevents_startup_even_when_redis_is_disabled(bundle: Path) -> None:
+    (bundle / "streaming-model.txt").write_text("corrupt")
+    with pytest.raises(ServingError, match="checksum"):
+        load_local_model(bundle)
+
+
+def test_streaming_inference_requires_loaded_streaming_model() -> None:
+    from tripml.online_features import OnlineFeatures
+
+    model = ServingModel(MagicMock(spec=lgb.Booster), "static-only", None)
+    with pytest.raises(ServingError, match="streaming model is not loaded"):
+        model.predict(ETARequest.model_validate(PAYLOAD), OnlineFeatures({}, {}, 0))
+
+
+@pytest.mark.parametrize("native_order", [False, True])
+def test_streaming_model_rejects_incompatible_gold_version_or_native_order(
+    bundle: Path,
+    native_order: bool,
+) -> None:
+    manifest_path = bundle / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    if native_order:
+        model_path = bundle / "streaming-model.txt"
+        model_path.write_text(model_path.read_text().replace("pu_zone_trips_15m", "wrong_window"))
+        manifest["streaming_model_sha256"] = hashlib.sha256(model_path.read_bytes()).hexdigest()
+    else:
+        manifest["inputs"][0]["feature_model_version"] = "unsupported"
+    manifest_path.write_text(json.dumps(manifest))
+    with pytest.raises(ServingError, match="feature"):
+        load_local_model(bundle)
