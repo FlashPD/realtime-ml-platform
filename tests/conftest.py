@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -18,6 +19,19 @@ from tripml.settings import (
     TrainingSettings,
 )
 from tripml.training import TrainingRunReport, train_models
+
+
+@pytest.fixture
+def helm() -> str:
+    binary = os.getenv("TRIPML_HELM") or str(
+        Path(__file__).resolve().parents[1] / ".tools/bin/helm"
+    )
+    if not Path(binary).is_file():
+        binary = shutil.which("helm") or ""
+    if not binary:
+        pytest.skip("Helm is unavailable; run make tools")
+    return binary
+
 
 os.environ.setdefault(
     "AIRFLOW_HOME",

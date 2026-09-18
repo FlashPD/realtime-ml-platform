@@ -1,5 +1,26 @@
 credentialsSecret: tripml-infra-credentials
 
+# Local, opt-in serving visibility. Create the Grafana admin Secret before enabling.
+monitoring:
+  enabled: false
+  prometheus:
+    image:
+      repository: prom/prometheus
+      tag: v3.14.0
+    persistence:
+      size: 2Gi
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: 500m, memory: 512Mi}
+  grafana:
+    image:
+      repository: grafana/grafana
+      tag: 13.2.2
+    adminSecret: tripml-grafana-admin
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits: {cpu: 500m, memory: 384Mi}
+
 # Enable only after the registry has a promoted model. External service addresses are
 # optional; empty values resolve to this release's MLflow, Redis, and Redpanda services.
 serving:

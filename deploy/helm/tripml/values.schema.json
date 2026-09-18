@@ -2,8 +2,63 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["credentialsSecret", "global", "postgresql", "redis", "minio", "redpanda", "airflow", "mlflow", "serving"],
+  "required": ["credentialsSecret", "global", "postgresql", "redis", "minio", "redpanda", "airflow", "mlflow", "serving", "monitoring"],
   "properties": {
+    "monitoring": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "prometheus",
+        "grafana"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "prometheus": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "image",
+            "persistence",
+            "resources"
+          ],
+          "properties": {
+            "image": {
+              "$ref": "#/$defs/image"
+            },
+            "persistence": {
+              "$ref": "#/$defs/persistence"
+            },
+            "resources": {
+              "$ref": "#/properties/serving/properties/resources"
+            }
+          }
+        },
+        "grafana": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "image",
+            "adminSecret",
+            "resources"
+          ],
+          "properties": {
+            "image": {
+              "$ref": "#/$defs/image"
+            },
+            "adminSecret": {
+              "type": "string",
+              "minLength": 1
+            },
+            "resources": {
+              "$ref": "#/properties/serving/properties/resources"
+            }
+          }
+        }
+      }
+    },
     "serving": {
       "type": "object",
       "additionalProperties": false,

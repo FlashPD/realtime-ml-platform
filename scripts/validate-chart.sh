@@ -33,4 +33,18 @@ if ! grep -q '^kind: HorizontalPodAutoscaler$' "${rendered_manifest}"; then
   exit 1
 fi
 
+"${helm_binary}" lint "${chart_directory}" --set monitoring.enabled=true
+"${helm_binary}" template tripml "${chart_directory}" --namespace tripml \
+  --set monitoring.enabled=true > "${rendered_manifest}"
+for workload in prometheus grafana; do
+  if ! grep -q "app.kubernetes.io/component: ${workload}" "${rendered_manifest}"; then
+    echo "Monitoring profile is missing ${workload}" >&2
+    exit 1
+  fi
+done
+if grep -Eq '^kind: (Secret|ClusterRole|ClusterRoleBinding)$' "${rendered_manifest}"; then
+  echo "Monitoring must use existing credentials and namespace-scoped discovery" >&2
+  exit 1
+fi
+
 echo "Chart lint and render checks passed"

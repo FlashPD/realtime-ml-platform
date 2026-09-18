@@ -48,6 +48,12 @@ The complete design, delivery phases, service objectives, and acceptance criteri
 
 ## Delivery status and roadmap
 
+The active target is the **[batch-serving portfolio release](docs/batch-serving-release.md)**.
+Its checklist separates release requirements from the later streaming roadmap. Local serving
+visibility is now available through an opt-in Prometheus/Grafana profile; see the
+[monitoring runbook](docs/runbooks/serving-monitoring.md). Real-data model comparison, static-model
+promotion semantics, representative load evidence, and final reproduction remain release gates.
+
 The batch path is complete through a guarded MLflow production alias. "Complete" below means
 implemented, documented, and covered by the repository quality gates; it does not mean that a final
 showcase run has measured the production-shaped objectives yet.
@@ -73,7 +79,8 @@ showcase run has measured the production-shaped objectives yet.
 | Serving resilience harness | Disposable Redis/Redpanda, real HTTP and native-model inference, healthy online load, Redis/broker outages and recovery in one API process, metrics assertions, consumer readback, and manual CI evidence export |
 | In-cluster load and HPA harness | Temporary registry and Redis, a Service-addressed load pod, raw CPU/HPA/readiness observations, per-pod traffic evidence, default stabilization, model artifact export, and explicit workload/scaling gates |
 | Real-data request workloads | Bounded-memory sampling of accepted TLC silver, deterministic request fixtures, explicit DST exclusions, source/sample distributions, source checksums, and benchmark provenance verification |
-| Engineering documentation | Data card and fourteen ADRs covering infrastructure, ingestion, orchestration, feature correctness, reproducible promotion decisions, registry safety, serving, delivery semantics, deployment, load measurement, autoscaling evidence, and real-data workloads |
+| Local serving monitoring | Opt-in Prometheus with per-pod discovery, namespace-scoped RBAC, authenticated Grafana, provisioned serving dashboard, bounded retention, and an isolated kind smoke test |
+| Engineering documentation | Data card, batch-release checklist, monitoring runbook, and fifteen ADRs covering infrastructure, ingestion, orchestration, feature correctness, reproducible promotion decisions, registry safety, serving, delivery semantics, deployment, load measurement, autoscaling evidence, real-data workloads, and monitoring |
 
 ### Remaining
 

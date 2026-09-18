@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -10,16 +8,6 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-@pytest.fixture
-def helm() -> str:
-    binary = os.getenv("TRIPML_HELM") or str(ROOT / ".tools/bin/helm")
-    if not Path(binary).is_file():
-        binary = shutil.which("helm") or ""
-    if not binary:
-        pytest.skip("Helm is unavailable; run make tools")
-    return binary
 
 
 def _render(helm: str, *settings: str) -> subprocess.CompletedProcess[str]:
