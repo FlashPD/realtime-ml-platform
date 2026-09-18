@@ -22,6 +22,7 @@ from tripml.training import (
     TrainingDataError,
     TrainingError,
     calculate_metrics,
+    distance_bucket_metrics,
     evaluate_promotion,
     max_bucket_calibration_error_pct,
     train_models,
@@ -77,6 +78,23 @@ def test_metrics_and_distance_bucket_calibration_have_known_answers() -> None:
     assert metrics.rmse_seconds == pytest.approx(np.sqrt(750))
     assert metrics.mape_pct == pytest.approx(10.0)
     assert calibration == pytest.approx(10.0)
+
+
+def test_bucket_diagnostics_include_boundaries_and_empty_buckets() -> None:
+    actual = np.array([100.0, 200.0, 400.0])
+    predicted = np.array([90.0, 220.0, 440.0])
+    distance = np.array([0.0, 2.0, 10.0])
+    buckets = distance_bucket_metrics(actual, predicted, distance)
+    assert [bucket.rows for bucket in buckets] == [1, 1, 0, 1]
+    assert buckets[0].mae_seconds == 10.0
+    assert buckets[1].actual_mean_seconds == 200.0
+    assert buckets[1].predicted_mean_seconds == 220.0
+    assert buckets[2].mae_seconds is None
+    assert buckets[2].calibration_error_pct is None
+    assert buckets[-1].upper_miles is None
+    assert max(bucket.calibration_error_pct or 0 for bucket in buckets) == pytest.approx(
+        max_bucket_calibration_error_pct(actual, predicted, distance)
+    )
 
 
 @pytest.mark.parametrize(
@@ -204,6 +222,11 @@ def test_training_compares_candidates_gates_and_publishes_native_artifacts(
         report.static_candidate_metrics.mae_seconds
     )
     assert report.promotion_decision.outcome is PromotionOutcome.PROMOTE
+    assert report.evidence_version == 2
+    assert report.static_eligibility_decision is not None
+    assert report.static_eligibility_decision.outcome is PromotionOutcome.REJECT
+    assert report.static_eligibility_decision.production_version is None
+    assert sum(bucket.rows for bucket in report.static_distance_buckets) == 100
     assert Path(report.baseline_path).is_file()
     assert Path(report.static_model_path).read_text(encoding="utf-8").startswith("tree")
     assert Path(report.streaming_model_path).read_text(encoding="utf-8").startswith("tree")

@@ -20,6 +20,9 @@ Kubernetes.
 > latency, traffic across replicas, CPU scale-up, and the default scale-down stabilization window.
 > Real-data request workloads can now be sampled reproducibly from accepted silver partitions,
 > with distribution comparisons and checksummed provenance preserved by the benchmark runner.
+> A [real-data January/February pilot](docs/validation/real-data-pilot.md) trained and evaluated on
+> all accepted rows: static LightGBM reduced holdout MAE by 33.21% to 172.85 seconds and passed
+> unchanged eligibility gates. March and April remain quarantined; no pilot model was published.
 > Representative real-data load measurements, the stream producer, and the ground-truth joiner remain
 > pending.
 
@@ -80,7 +83,8 @@ showcase run has measured the production-shaped objectives yet.
 | In-cluster load and HPA harness | Temporary registry and Redis, a Service-addressed load pod, raw CPU/HPA/readiness observations, per-pod traffic evidence, default stabilization, model artifact export, and explicit workload/scaling gates |
 | Real-data request workloads | Bounded-memory sampling of accepted TLC silver, deterministic request fixtures, explicit DST exclusions, source/sample distributions, source checksums, and benchmark provenance verification |
 | Local serving monitoring | Opt-in Prometheus with per-pod discovery, namespace-scoped RBAC, authenticated Grafana, provisioned serving dashboard, bounded retention, and an isolated kind smoke test |
-| Engineering documentation | Data card, batch-release checklist, monitoring runbook, and fifteen ADRs covering infrastructure, ingestion, orchestration, feature correctness, reproducible promotion decisions, registry safety, serving, delivery semantics, deployment, load measurement, autoscaling evidence, real-data workloads, and monitoring |
+| Real-data model pilot | Full January training / February evaluation, three-model comparison, distance-bucket diagnostics, separate static eligibility, resource measurements, checksummed evidence and application smoke test; original release holdout remains blocked by source quality |
+| Engineering documentation | Data card, batch-release checklist, monitoring and pilot runbooks, and sixteen ADRs covering the delivered architecture and validation decisions |
 
 ### Remaining
 
@@ -208,6 +212,10 @@ The tested table is atomically published to
 output checksums, row counts, window configuration, configuration fingerprint, feature model
 version, and build time. See
 [ADR-0005](docs/adr/0005-point-in-time-gold-features.md) for the event-ledger window design.
+Monthly builds default to two DuckDB workers, a 2 GB buffer-manager limit and 8 GB of spill space
+under the disposable build directory. Configure these through the `features` settings. Previous-month
+inputs are pruned by completion time to retain the required boundary context. The DuckDB limit is
+not a hard process-memory ceiling; see [ADR-0016](docs/adr/0016-real-data-pilot-and-bounded-feature-builds.md).
 
 ## Model training and promotion gate
 
@@ -225,6 +233,12 @@ incumbent comparison, and registers the streaming candidate only when it satisfi
 MAE improvement, distance-bucket calibration, and single-row inference-latency gates. A rejection
 leaves the registry and production alias unchanged. Use `tripml train --no-track` when only the
 local, reproducible model bundle is needed.
+
+The real-data pilot uses a separate January-training / February-holdout configuration while the
+planned March and April partitions remain quarantined by the existing quality gate. Follow the
+[pilot runbook](docs/runbooks/real-data-pilot.md) to reproduce it. Training evidence now includes
+distance-bucket diagnostics for every model and static-model eligibility independently of the
+streaming candidate's promotion decision.
 
 Each content-addressed run under `artifacts/training/<run-id>/` contains the native LightGBM model
 files, serialized baseline, evaluation report, input checksums, artifact checksums, promotion

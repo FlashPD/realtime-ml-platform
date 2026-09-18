@@ -110,6 +110,12 @@ class IngestionSettings(ImmutableModel):
     download_timeout_seconds: PositiveFloat = 120.0
 
 
+class FeatureSettings(ImmutableModel):
+    duckdb_memory_limit: str = Field(default="2GB", pattern=r"^[1-9][0-9]*(MB|GB)$")
+    duckdb_max_temp_directory_size: str = Field(default="8GB", pattern=r"^[1-9][0-9]*(MB|GB)$")
+    duckdb_threads: int = Field(default=2, ge=1, le=32)
+
+
 class LineageSettings(ImmutableModel):
     database_url: SecretStr | None = Field(default=None, exclude=True)
     connect_timeout_seconds: PositiveInt = 10
@@ -158,6 +164,7 @@ class PlatformSettings(BaseSettings):
     streaming: StreamingSettings = Field(default_factory=StreamingSettings)
     serving: ServingSettings = Field(default_factory=ServingSettings)
     ingestion: IngestionSettings = Field(default_factory=IngestionSettings)
+    features: FeatureSettings = Field(default_factory=FeatureSettings)
     lineage: LineageSettings = Field(default_factory=LineageSettings)
     tracking: TrackingSettings = Field(default_factory=TrackingSettings)
     publication: PublicationSettings = Field(default_factory=PublicationSettings)

@@ -13,8 +13,8 @@ continues to describe later streaming and closed-loop milestones. No release tag
 | Deliverable | Current evidence | Release acceptance |
 |---|---|---|
 | Data and leakage controls | Ingestion, lineage, gold feature tests; January real-data workload | Record source checksums, accepted/rejected counts, and all training/holdout months |
-| Real-data model comparison | Training/evaluation pipeline implemented; no published real-data comparison | Train January–March 2024, hold out April; publish baseline, static and offline rolling-feature metrics, bucket calibration, model card and gate decisions |
-| Model selection for batch serving | Registry promotes streaming candidate; API serves verified static sibling when features are absent | Explicitly evaluate and approve the static model that handles batch-release requests; resolve registry semantics before declaring it production-ready |
+| Real-data model comparison | [January / February pilot](validation/real-data-pilot.md) completed; March and April quarantined by the unchanged data gate | Resolve missing passenger-count contract policy before the planned January–March / April release evaluation; retain pilot evidence separately |
+| Model selection for batch serving | Pilot static candidate passes baseline, calibration and latency gates; registry still promotes streaming candidate | Add explicit static registration/promotion and serving selection semantics before declaring the batch model production-ready |
 | Kubernetes API | Synthetic registry-to-HTTP and broker acknowledgment tests | Deploy the selected real-data artifact; record image identity, bundle checksum, registry provenance and startup/readiness evidence |
 | Serving visibility | Opt-in Prometheus and provisioned Grafana dashboard | Capture dashboard and scrape evidence during the release workload; document missing-data and fallback interpretation |
 | Representative load | Real-data request builder and synthetic kind/HPA measurements | Use held-out April requests and the real-data model; export raw samples, workload provenance, throughput, P50/P95/P99, errors, dropped arrivals and serving mode |
@@ -28,9 +28,9 @@ synthetic evidence to obtain a passing headline.
 
 ## Delivery sequence
 
-1. Provision serving monitoring and write its operating runbook (this increment).
-2. Build the real-data gold partitions and publish the model comparison. Inspect memory use for
-   monthly feature construction and training before running all months on the laptop.
+1. Provision serving monitoring and write its operating runbook (delivered).
+2. Build real-data gold partitions and publish a measured comparison (pilot delivered with bounded
+   feature builds; intended release split blocked by March/April source completeness).
 3. Resolve static-model promotion and deployment based on that comparison. Record the decision
    in an ADR; keep static and streaming results separately attributable.
 4. Run held-out traffic through kind with dashboards, acknowledgment enabled, and exported

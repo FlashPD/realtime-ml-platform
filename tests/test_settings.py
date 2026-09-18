@@ -57,6 +57,9 @@ def test_lineage_database_url_is_excluded_from_output_and_fingerprint(
         "streaming:\n  short_window_seconds: 3600\n  long_window_seconds: 900\n",
         "training:\n  train_months: ['2024-04']\n  holdout_month: '2024-04'\n",
         "unknown_section: true\n",
+        "features:\n  duckdb_memory_limit: unlimited\n",
+        "features:\n  duckdb_max_temp_directory_size: 0GB\n",
+        "features:\n  duckdb_threads: 0\n",
     ],
 )
 def test_invalid_configuration_fails_loudly(tmp_path: Path, payload: str) -> None:

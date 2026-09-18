@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from tripml.contracts import AwareDateTime
 from tripml.ingestion import TAXI_KIND, YearMonth
-from tripml.settings import PlatformSettings
+from tripml.settings import FeatureSettings, PlatformSettings
 
 MODEL_VERSION = "gold-features-v1"
 HASH_CHUNK_SIZE = 1024 * 1024
@@ -116,7 +116,7 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
             temporary_path.unlink(missing_ok=True)
 
 
-def _write_dbt_profile(directory: Path, database_path: Path) -> None:
+def _write_dbt_profile(directory: Path, database_path: Path, settings: FeatureSettings) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     profile = {
         "tripml": {
@@ -126,7 +126,13 @@ def _write_dbt_profile(directory: Path, database_path: Path) -> None:
                     "type": "duckdb",
                     "path": str(database_path),
                     "schema": "tripml",
-                    "threads": 4,
+                    "threads": settings.duckdb_threads,
+                    "settings": {
+                        "threads": settings.duckdb_threads,
+                        "memory_limit": settings.duckdb_memory_limit,
+                        "max_temp_directory_size": settings.duckdb_max_temp_directory_size,
+                        "preserve_insertion_order": False,
+                    },
                 }
             },
         }
@@ -180,7 +186,7 @@ def build_gold_features(
             "model_version": MODEL_VERSION,
         }
         profiles_dir = temporary_root / "profiles"
-        _write_dbt_profile(profiles_dir, temporary_root / "tripml.duckdb")
+        _write_dbt_profile(profiles_dir, temporary_root / "tripml.duckdb", settings.features)
         try:
             _invoke_dbt(
                 [

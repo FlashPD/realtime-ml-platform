@@ -75,7 +75,18 @@ class TrainingInput(FrozenModel):
     feature_model_version: str
 
 
+class DistanceBucketMetrics(FrozenModel):
+    lower_miles: float = Field(ge=0)
+    upper_miles: float | None = Field(default=None, gt=0)
+    rows: int = Field(ge=0)
+    mae_seconds: float | None = Field(default=None, ge=0)
+    actual_mean_seconds: float | None = Field(default=None, gt=0)
+    predicted_mean_seconds: float | None = None
+    calibration_error_pct: float | None = Field(default=None, ge=0)
+
+
 class TrainingRunReport(FrozenModel):
+    evidence_version: int = 1
     run_id: str = Field(pattern=r"^[0-9a-f]{16}$")
     train_months: tuple[str, ...]
     holdout_month: str
@@ -90,6 +101,11 @@ class TrainingRunReport(FrozenModel):
     static_max_bucket_calibration_error_pct: float = Field(ge=0)
     streaming_max_bucket_calibration_error_pct: float = Field(ge=0)
     promotion_decision: PromotionDecision
+    # Diagnostic gates for the actual batch-serving model; no registry mutation is implied.
+    static_eligibility_decision: PromotionDecision | None = None
+    baseline_distance_buckets: tuple[DistanceBucketMetrics, ...] = ()
+    static_distance_buckets: tuple[DistanceBucketMetrics, ...] = ()
+    streaming_distance_buckets: tuple[DistanceBucketMetrics, ...] = ()
     artifact_directory: str
     baseline_path: str
     static_model_path: str
@@ -225,6 +241,32 @@ def max_bucket_calibration_error_pct(
         predicted_mean = float(np.mean(predicted[selected]))
         errors.append(abs(predicted_mean - actual_mean) / actual_mean * 100)
     return max(errors, default=0.0)
+
+
+def distance_bucket_metrics(
+    actual: FloatArray, predicted: FloatArray, distance: FloatArray
+) -> tuple[DistanceBucketMetrics, ...]:
+    buckets = []
+    for lower, upper in pairwise(DISTANCE_BUCKET_EDGES):
+        selected = (distance >= lower) & (distance < upper)
+        count = int(np.count_nonzero(selected))
+        bounds = {"lower_miles": lower, "upper_miles": upper if np.isfinite(upper) else None}
+        if not count:
+            buckets.append(DistanceBucketMetrics(**bounds, rows=0))
+            continue
+        actual_mean = float(np.mean(actual[selected]))
+        predicted_mean = float(np.mean(predicted[selected]))
+        buckets.append(
+            DistanceBucketMetrics(
+                **bounds,
+                rows=count,
+                mae_seconds=float(np.mean(np.abs(predicted[selected] - actual[selected]))),
+                actual_mean_seconds=actual_mean,
+                predicted_mean_seconds=predicted_mean,
+                calibration_error_pct=abs(predicted_mean - actual_mean) / actual_mean * 100,
+            )
+        )
+    return tuple(buckets)
 
 
 def evaluate_promotion(
@@ -407,6 +449,28 @@ def _model_card(report: TrainingRunReport) -> str:
         )
         for gate in decision.gate_results
     )
+    static = report.static_eligibility_decision
+    static_rows = (
+        ""
+        if static is None
+        else "".join(
+            f"| {gate.rule} | {gate.observed:.3f} | {gate.threshold:.3f} | "
+            f"{'yes' if gate.passed else 'no'} |\n"
+            for gate in static.gate_results
+        )
+    )
+    bucket_rows = "".join(
+        f"| {label} | [{bucket.lower_miles:g}, "
+        f"{bucket.upper_miles if bucket.upper_miles is not None else 'inf'}) | "
+        f"{bucket.rows:,} | {_optional_metric(bucket.mae_seconds)} | "
+        f"{_optional_metric(bucket.calibration_error_pct)} |\n"
+        for label, buckets in (
+            ("Baseline", report.baseline_distance_buckets),
+            ("Static", report.static_distance_buckets),
+            ("Offline rolling", report.streaming_distance_buckets),
+        )
+        for bucket in buckets
+    )
     return f"""# Trip-duration model card: {report.run_id}
 
 ## Intended use
@@ -426,7 +490,26 @@ for pricing, employment, enforcement, or decisions about individual passengers o
 |---|---:|---:|---:|---:|
 {metric_rows}
 
-## Promotion decision
+## Distance-bucket diagnostics
+
+Calibration is the absolute difference between predicted and actual bucket means, divided by
+the actual mean. Empty buckets report N/A. It is not a confidence-interval coverage metric.
+
+| Model | Miles (lower inclusive) | Rows | MAE (s) | Calibration error (%) |
+|---|---|---:|---:|---:|
+{bucket_rows}
+
+## Static-model eligibility
+
+**{static.outcome.value.upper() if static is not None else "NOT EVALUATED"}** against baseline,
+calibration and latency gates. This diagnostic does not register or promote the static model,
+and does not compare it with a streaming-model incumbent.
+
+| Gate | Observed | Threshold | Passed |
+|---|---:|---:|:---:|
+{static_rows}
+
+## Streaming-candidate promotion decision
 
 **{decision.outcome.value.upper()}** `{decision.candidate_version}`.
 
@@ -439,7 +522,15 @@ for pricing, employment, enforcement, or decisions about individual passengers o
 The data represents completed medallion-taxi trips and local wall-clock timestamps. Performance can
 shift across seasons, policy changes, vehicle types, and unusual demand. Online feature parity and
 live error monitoring are separate acceptance gates before serving claims are made.
+Trip distance is the observed completed-trip distance; pre-trip use requires an external route
+estimate whose accuracy is not validated here. Rolling features in this comparison are computed
+offline, not supplied by a live stream processor. Timing is local single-row model inference,
+not end-to-end HTTP latency.
 """
+
+
+def _optional_metric(value: float | None) -> str:
+    return "N/A" if value is None else f"{value:.2f}"
 
 
 def _metric_row(label: str, metrics: ModelMetrics) -> str:
@@ -456,6 +547,7 @@ def _run_identifier(
     production_metrics: ModelMetrics | None,
 ) -> str:
     payload = {
+        "evidence_version": 2,
         "inputs": [item.model_dump(mode="json", exclude={"path"}) for item in inputs],
         "training": settings.training.model_dump(mode="json", exclude={"artifact_root"}),
         "promotion_gate": settings.promotion_gate.model_dump(mode="json"),
@@ -599,6 +691,14 @@ def train_models(
         production_version=production_version,
         production_metrics=production_metrics,
     )
+    static_decision = evaluate_promotion(
+        candidate_version=f"{run_id}-static",
+        candidate_metrics=static_metrics,
+        baseline_metrics=baseline_metrics,
+        max_calibration_error_pct=static_calibration,
+        settings=settings.promotion_gate,
+        decided_at=trained_at,
+    )
 
     artifact_root.mkdir(parents=True, exist_ok=True)
     temporary = Path(tempfile.mkdtemp(prefix=f".{run_id}.", dir=artifact_root))
@@ -613,6 +713,7 @@ def train_models(
         static_booster.save_model(temporary / "static-model.txt")
         streaming_booster.save_model(temporary / "streaming-model.txt")
         report = TrainingRunReport(
+            evidence_version=2,
             run_id=run_id,
             train_months=settings.training.train_months,
             holdout_month=settings.training.holdout_month,
@@ -627,6 +728,16 @@ def train_models(
             static_max_bucket_calibration_error_pct=static_calibration,
             streaming_max_bucket_calibration_error_pct=streaming_calibration,
             promotion_decision=decision,
+            static_eligibility_decision=static_decision,
+            baseline_distance_buckets=distance_bucket_metrics(
+                holdout.target, baseline_predictions, holdout.distance
+            ),
+            static_distance_buckets=distance_bucket_metrics(
+                holdout.target, static_predictions, holdout.distance
+            ),
+            streaming_distance_buckets=distance_bucket_metrics(
+                holdout.target, streaming_predictions, holdout.distance
+            ),
             artifact_directory=str(destination),
             baseline_path=str(final_paths["baseline"]),
             static_model_path=str(final_paths["static"]),

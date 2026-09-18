@@ -117,3 +117,26 @@ def test_gold_features_have_known_answers_without_target_leakage(tmp_path: Path)
 def test_gold_feature_build_requires_target_silver_partition(tmp_path: Path) -> None:
     with pytest.raises(FeatureSourceError, match="accepted silver partition"):
         build_gold_features("2024-01", settings=_settings(tmp_path))
+
+
+def test_prior_month_pruning_preserves_completion_time_boundaries(tmp_path: Path) -> None:
+    _write_silver(
+        tmp_path,
+        YearMonth(2023, 12),
+        [
+            _trip("long-trip", datetime(2023, 12, 31, 21, 59), 7200),
+            _trip("lower-bound", datetime(2023, 12, 31, 22), 3600),
+            _trip("too-old", datetime(2023, 12, 31, 22), 3599),
+            _trip("same-time", datetime(2023, 12, 31, 23, 50), 600),
+        ],
+    )
+    _write_silver(tmp_path, YearMonth(2024, 1), [_trip("target", datetime(2024, 1, 1), 600)])
+
+    report = build_gold_features("2024-01", settings=_settings(tmp_path))
+    rows = pq.ParquetFile(report.output_path).read().to_pylist()
+
+    assert len(rows) == 1
+    assert rows[0]["pu_zone_trips_15m"] == 1
+    assert rows[0]["pu_zone_trips_60m"] == 2
+    assert rows[0]["do_zone_trips_60m"] == 2
+    assert rows[0]["pu_zone_features_60m_as_of"] == datetime(2023, 12, 31, 23, 59)

@@ -56,6 +56,13 @@ partition remains a hard failure. Accepted partitions contain only valid rows; i
 retained with rule flags.
 Rejected partitions are quarantined as a whole and cannot replace a prior silver partition.
 
+The September 2026 audit found that this January-calibrated partition threshold rejects March
+and April 2024. Their union violation rates are 14.12% and 13.88%; missing passenger counts alone
+affect 11.90% and 11.63% of rows. These are observed source-completeness differences, not evidence
+of a download or schema failure. The threshold remains unchanged. The separately configured
+[pilot](../examples/training/real-data-pilot.yaml) uses January for training and February for
+evaluation; it does not replace the planned April release holdout.
+
 ## Known limitations
 
 - Records describe completed taxi trips, not total travel demand, and reflect medallion-taxi

@@ -14,3 +14,15 @@ from read_parquet(
     {{ sql_string_list(var('silver_paths')) }},
     union_by_name = true
 )
+-- Keep target pickups and only the prior-month completions that can enter a target window.
+-- Filter by completion time: an earlier pickup can still complete inside the lookback.
+where
+    (
+        pickup_datetime >= timestamp {{ sql_string(var('month_start')) }}
+        and pickup_datetime < timestamp {{ sql_string(var('month_end')) }}
+    )
+    or (
+        dropoff_datetime >= timestamp {{ sql_string(var('month_start')) }}
+            - interval '{{ var("long_window_seconds") | int }} seconds'
+        and dropoff_datetime < timestamp {{ sql_string(var('month_end')) }}
+    )

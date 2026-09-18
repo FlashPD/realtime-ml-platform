@@ -41,6 +41,11 @@ lineage:
   connect_timeout_seconds: 10
   auto_migrate: true
 
+features:
+  duckdb_memory_limit: 2GB
+  duckdb_max_temp_directory_size: 8GB
+  duckdb_threads: 2
+
 tracking:
   tracking_uri: sqlite:///artifacts/mlflow/mlflow.db
   local_artifact_root: artifacts/mlflow/runs
