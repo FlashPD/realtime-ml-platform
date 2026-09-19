@@ -26,7 +26,7 @@ typecheck: ## Run strict static type checking
 test: ## Run the unit test suite with coverage
 	$(PYTHON) -m pytest
 
-check: lint typecheck test helm-lint ## Run all local quality gates
+check: lint typecheck helm-lint test ## Run all local quality gates
 
 contracts: ## Export event contracts as JSON Schema
 	$(PYTHON) -m tripml contracts export --output build/contracts

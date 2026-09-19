@@ -57,7 +57,7 @@ covered by the separate resilience suite; this run validates the acknowledgment 
 
 ## Reproduction and evidence
 
-Follow the [load-test commands](../../README.md#in-cluster-load-and-cpu-autoscaling) using a new
+Follow the [load-test commands](../platform-guide.md#in-cluster-load-and-cpu-autoscaling) using a new
 output directory. The [machine-readable snapshot](kind-serving-load.json) records the workload
 summary, scaling gates, image/input evidence manifest, and SHA-256 checksums. The figure and this
 small snapshot are included in the repository; full request samples, model artifacts, Kubernetes

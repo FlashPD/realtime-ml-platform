@@ -116,5 +116,6 @@ executed driver source. These large local artifacts remain ignored by Git.
 
 This is a declared workload on single-node local infrastructure, not production capacity,
 high availability, request-rate autoscaling, streaming parity, or live ETA accuracy. Failure
-traffic is lower than the main 100/s profile. Clean-checkout reproduction, accessible release
-artifacts, the short portfolio walkthrough and release tagging remain outstanding.
+traffic is lower than the main 100/s profile. At measurement time, clean-checkout reproduction, accessible release artifacts, the walkthrough
+and tagging remained outstanding. See the subsequent [packaging receipt](clean-checkout.md) for
+the verified candidate and maintainer publication handoff.

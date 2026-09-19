@@ -1,0 +1,114 @@
+{
+  "captured_at": "2026-09-19T15:18:01.477907+00:00",
+  "containers": [
+    {
+      "container": "api-server",
+      "image": "docker.io/library/tripml-airflow:0.1.0",
+      "image_id": "sha256:170e917879c0155c58fda58221e0de7e4ae18efa380d1a1e2b19df5db57865c4",
+      "pod": "tripml-tripml-airflow-6b85499658-lnkms",
+      "ready": true,
+      "restart_count": 0
+    },
+    {
+      "container": "dag-processor",
+      "image": "docker.io/library/tripml-airflow:0.1.0",
+      "image_id": "sha256:170e917879c0155c58fda58221e0de7e4ae18efa380d1a1e2b19df5db57865c4",
+      "pod": "tripml-tripml-airflow-6b85499658-lnkms",
+      "ready": true,
+      "restart_count": 0
+    },
+    {
+      "container": "scheduler",
+      "image": "docker.io/library/tripml-airflow:0.1.0",
+      "image_id": "sha256:170e917879c0155c58fda58221e0de7e4ae18efa380d1a1e2b19df5db57865c4",
+      "pod": "tripml-tripml-airflow-6b85499658-lnkms",
+      "ready": true,
+      "restart_count": 0
+    },
+    {
+      "container": "grafana",
+      "image": "docker.io/grafana/grafana:13.2.2",
+      "image_id": "docker.io/grafana/grafana@sha256:ac461fb352abc50da10a51c7d02462e9c05488f11f53f14b3ad79a8145f638a0",
+      "pod": "tripml-tripml-grafana-69cb8994d6-d9mgl",
+      "ready": true,
+      "restart_count": 1
+    },
+    {
+      "container": "minio",
+      "image": "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z",
+      "image_id": "quay.io/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e",
+      "pod": "tripml-tripml-minio-0",
+      "ready": true,
+      "restart_count": 1
+    },
+    {
+      "container": "mlflow",
+      "image": "docker.io/library/tripml-mlflow:0.1.0",
+      "image_id": "sha256:85b69c7d36f98f70e4d7ff951184e89c79d76bdde40de5bcaaa7dd213fe4db0a",
+      "pod": "tripml-tripml-mlflow-9b4556d89-gb82w",
+      "ready": true,
+      "restart_count": 0
+    },
+    {
+      "container": "postgresql",
+      "image": "docker.io/library/postgres:16.15-bookworm",
+      "image_id": "docker.io/library/postgres@sha256:bb3e1a57e5407e0a5280b4211980a5e537f4abd234a87014ac979849a78dd825",
+      "pod": "tripml-tripml-postgresql-0",
+      "ready": true,
+      "restart_count": 1
+    },
+    {
+      "container": "prometheus",
+      "image": "docker.io/prom/prometheus:v3.14.0",
+      "image_id": "docker.io/prom/prometheus@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0",
+      "pod": "tripml-tripml-prometheus-7d967d484d-zdl5d",
+      "ready": true,
+      "restart_count": 0
+    },
+    {
+      "container": "redis",
+      "image": "docker.io/library/redis:8.8.0-alpine3.23",
+      "image_id": "docker.io/library/redis@sha256:9d317178eceac8454a2284a9e6df2466b93c745529947f0cd42a0fa9609d7005",
+      "pod": "tripml-tripml-redis-0",
+      "ready": true,
+      "restart_count": 1
+    },
+    {
+      "container": "redpanda",
+      "image": "docker.redpanda.com/redpandadata/redpanda:v26.2.2",
+      "image_id": "docker.redpanda.com/redpandadata/redpanda@sha256:468bd13a9f2bd24794cb7fddc867c767fb1008b9a07b297b89fde48c564d7d96",
+      "pod": "tripml-tripml-redpanda-0",
+      "ready": true,
+      "restart_count": 1
+    },
+    {
+      "container": "serving",
+      "image": "docker.io/library/tripml-serving:16bc98e7d329a2a4065de6b1fedc5f240feaae40d319e887cac9eb65adf6c991",
+      "image_id": "sha256:16bc98e7d329a2a4065de6b1fedc5f240feaae40d319e887cac9eb65adf6c991",
+      "pod": "tripml-tripml-serving-6fb6fd74d7-scgps",
+      "ready": true,
+      "restart_count": 0
+    },
+    {
+      "container": "serving-smoke",
+      "image": "docker.io/library/tripml-serving:16bc98e7d329a2a4065de6b1fedc5f240feaae40d319e887cac9eb65adf6c991",
+      "image_id": "sha256:16bc98e7d329a2a4065de6b1fedc5f240feaae40d319e887cac9eb65adf6c991",
+      "pod": "tripml-tripml-test-serving",
+      "ready": false,
+      "restart_count": 0
+    }
+  ],
+  "note": "Local image IDs identify recorded bytes but are not publicly pullable registry digests. Images are not distributed in the artifact archive.",
+  "scope": "Read-only inventory of existing kind-tripml namespace tripml; no redeployment",
+  "serving_image": {
+    "Architecture": "arm64",
+    "Created": "2026-09-19T00:49:49.222039003Z",
+    "Id": "sha256:16bc98e7d329a2a4065de6b1fedc5f240feaae40d319e887cac9eb65adf6c991",
+    "Os": "linux",
+    "RepoDigests": [],
+    "RepoTags": [
+      "tripml-serving:16bc98e7d329a2a4065de6b1fedc5f240feaae40d319e887cac9eb65adf6c991",
+      "tripml-serving:batch-release-d6ff2c0"
+    ]
+  }
+}

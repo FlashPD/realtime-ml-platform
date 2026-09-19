@@ -11,6 +11,12 @@ cohort predictions matched native inference and consumed broker events. Subseque
 passed. The starting-point observations below describe the earlier audit; clean-checkout
 reproduction, accessible artifacts and portfolio release packaging remain pending.
 
+Update, packaging pass: the [clean-checkout receipt](validation/clean-checkout.md),
+[portable artifact workflow](runbooks/reproduce-release.md), concise README and
+[five-minute walkthrough](portfolio-walkthrough.md) are now prepared. The maintainer explicitly
+owns all commits and releases; [publication commands](runbooks/publish-release.md) are provided.
+Earlier “pending” statements below describe the starting audit, not the packaged candidate.
+
 ## Verified starting point
 
 - The recorded January–March training / April evaluation uses 9,316,058 training trips and
@@ -40,11 +46,11 @@ reproduction, accessible artifacts and portfolio release packaging remain pendin
 | 2 | Completed: deployment and monitoring | Approved identities, static readiness, cohort/native parity, healthy scrapes, Grafana datasource/dashboard query exports and telemetry figure recorded |
 | 3 | Completed: representative cluster traffic | 10,000 April successes at 100/s, P95 7.99 ms, no errors/drops, 10,020 benchmark/warm-up broker events matched; raw samples and resource observations retained |
 | 4 | Completed: isolated broker failure and recovery | 120 explicit 503 responses, acknowledgment restored in 6.25 s, all 4,040 baseline/recovery benchmark events matched, same API process, and verified cleanup |
-| 5 | Package a reproducible release | Run the walkthrough from a clean checkout, provide retrievable checksummed evidence and model artifacts or a documented rebuild path, capture dependency/image identities, and verify cleanup |
-| 6 | Make the result easy to review | Short README entry point, five-minute walkthrough, architecture, model comparison, load/failure results, limitations, portfolio description, and a release tag after acceptance passes |
+| 5 | Completed locally: reproducible package | Fresh environment checks and relocated-model smoke, checksummed model/evidence archive, dependency/image inventory, rebuild instructions and cleanup boundary recorded |
+| 6 | Presentation complete; publication pending | Short README, five-minute walkthrough, evidence links, limitations, portfolio description and release notes delivered; maintainer commits, tags and uploads assets |
 
 The release workload already exists. Start with the recorded 10,000-request April sample and
-declare the load before running it. The existing objectives are client P95 ≤50 ms, errors ≤1%,
+declare the load before running it. The existing objectives are client P95 <50 ms, errors ≤1%,
 and no dropped arrivals. Preserve failures and report the observed result; do not adjust the
 threshold after seeing a run. The local 100 requests/s preflight is a starting configuration,
 not a guarantee that acknowledged Kubernetes serving achieves the same result.
@@ -61,7 +67,7 @@ and fixture online snapshots. Neither can establish release-model capacity simpl
 The [approved-model deployment path](runbooks/deploy-approved-model.md) now verifies real-model
 serving and broker readback. The [operations harness](../scripts/run-release-operations.py)
 accepts the held-out workload and reuses the benchmark implementation. Synthetic fixture tests
-remain independently runnable. The next release task is clean-checkout reproduction and packaging.
+remain independently runnable. Clean-checkout reproduction and packaging are recorded in the linked packaging update.
 
 - [x] Verify the original report, native artifact, gold hashes, and held-out workload before any
   registry write. Reuse the checks in [the release validator](../scripts/validate-release-model.py).

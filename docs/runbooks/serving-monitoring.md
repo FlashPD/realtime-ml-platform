@@ -49,7 +49,7 @@ kubectl --context kind-tripml -n tripml port-forward service/tripml-tripml-prome
 ```
 
 At `http://localhost:9090/targets`, expect one healthy target per running serving pod. Run the
-[benchmark](../../README.md#measuring-serving-under-load) for at least a minute so rate panels have multiple
+[benchmark](../platform-guide.md#measuring-serving-under-load) for at least a minute so rate panels have multiple
 scrapes; Grafana rates use a minimum interval of four scrapes. Save the exact time window with
 any dashboard capture.
 

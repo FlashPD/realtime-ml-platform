@@ -1,0 +1,13 @@
+{
+  "python": "3.12.12 (main, Oct  9 2025, 11:07:00) [Clang 17.0.0 (clang-1700.3.19.1)]",
+  "platform": "macOS-26.6.2-arm64-arm-64bit",
+  "machine": "arm64",
+  "pip": "25.3",
+  "openmp_library": null,
+  "isolated_venv": true,
+  "site_packages_shared": false,
+  "available_homebrew_openmp": {
+    "path": "/opt/homebrew/Cellar/libomp/23.1.1/lib/libomp.dylib",
+    "sha256": "485801dbc57bc548c51578afcb5b994bfd881acc75526512fab4495ab8d0fe08"
+  }
+}

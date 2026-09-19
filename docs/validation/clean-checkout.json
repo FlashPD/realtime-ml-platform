@@ -1,0 +1,91 @@
+{
+  "archive": {
+    "independent_rebuild_manifest_matched": true,
+    "path": "dist/tripml-batch-v0.1.0-artifacts.tar.gz",
+    "sha256": "3b9fee14ba3b95db8560c50ae3b30484f94154857a1480a5498b72e0be30e93d",
+    "size_bytes": 15513000,
+    "verified_files": 196
+  },
+  "attempts": [
+    {
+      "outcome": "sandbox network denied; retried with network access successfully",
+      "step": "initial install"
+    },
+    {
+      "outcome": "311 passed / 26 skipped; Helm installed only after tests; Makefile ordering corrected",
+      "step": "initial checks"
+    },
+    {
+      "outcome": "331 passed / 6 optional external-service tests skipped",
+      "step": "final checks"
+    }
+  ],
+  "base_commit": "e118b6be3d18d44df1d704c1664ca0767163ad72",
+  "captured_at": "2026-09-19T15:20:58.579219+00:00",
+  "cleanup": {
+    "cluster_mutations": false,
+    "demo_processes": "in-process TestClient closed; ingestion and checks exited",
+    "original_data_and_registry": "unchanged",
+    "temporary_checkout": "retained at /private/tmp/tripml-clean-20260919 for inspection; safe to remove after review"
+  },
+  "constraints_sha256": "569849547ca15e393d887d620580357b04210ee35c5deea59d9016670d079c5c",
+  "evidence_sha256": {
+    "docs/validation/reproduction/environment.json": "cf86392c8c88bbd80887f0bd8308589f07f5029c596e5aca28f7e705fb10ac31",
+    "docs/validation/reproduction/january-ingestion.json": "8f0968bc44d438062cd81084bc1f53b82d024515aebdb9059a70159b60d9de1c",
+    "docs/validation/reproduction/model-smoke.json": "45b270bf5c924313dd5ae03869ec5c7148945e40365ce5c10e9a2067399159d0",
+    "docs/validation/reproduction/model-smoke.log": "bc5c224c14b9d88ae4049ba4c70841016fe6d42f45b7569802667a1d1febdc59",
+    "docs/validation/reproduction/packages.txt": "569849547ca15e393d887d620580357b04210ee35c5deea59d9016670d079c5c",
+    "docs/validation/reproduction/quality-gates.log": "0f632f81a84e5a0e040feda05d126179c80cf3f91e7f2ffcc609acce7f46939d",
+    "docs/validation/reproduction/source-sha256.json": "f12002cd102b717ebbc888d8fd5784d2f7da9c6af6bdaee8813f2a88afee71be"
+  },
+  "image_inventory_sha256": "d6b840e444df5a196fa6a8c082f136b4d244478692d901e6e6b86dbce7fa9175",
+  "isolation": {
+    "artifacts": "only explicitly verified archive imported",
+    "cluster": "existing cluster read-only image inventory; no training/deployment/load/failure rerun",
+    "data": "January newly downloaded from TLC; no reused bronze/silver/gold",
+    "venv": "new, no shared site-packages"
+  },
+  "january_ingestion": {
+    "accepted_rows": 2894609,
+    "invalid_rows": 70015,
+    "original_source_and_counts_matched": true,
+    "source_sha256": "c4d59da7bbc8abaeeeb1727947ee93d9891a71acb42854bd80db1571b2030510",
+    "status": "accepted",
+    "total_rows": 2964624
+  },
+  "limitations": [
+    "Fresh candidate export on same macOS arm64 host, not another OS or machine",
+    "Dependency versions captured, not a hash-locked cross-platform environment",
+    "No full retraining or Kubernetes rebuild/load/failure rerun",
+    "Original Docker image not distributed; inventory contains local content IDs and available registry digests",
+    "GitHub Actions and hosted asset retrieval remain unverified until maintainer publishes"
+  ],
+  "model_smoke": {
+    "count_cohorts": [
+      "known_positive",
+      "zero",
+      "unknown"
+    ],
+    "legacy_null_status": 422,
+    "model_version": "98ef1dd9ef4447f7-static",
+    "native_parity": true,
+    "passed": true,
+    "publication": "disabled",
+    "registry_version": null
+  },
+  "quality": {
+    "command": "make check PYTHON=.venv/bin/python",
+    "coverage_pct": 94.89,
+    "exit_code": 0,
+    "format": true,
+    "helm_profiles": 3,
+    "helm_version": "v4.3.0",
+    "lint": true,
+    "mypy": true,
+    "passed": 331,
+    "shell_syntax": true,
+    "skipped": 6
+  },
+  "source_method": "git clone --no-hardlinks into a new /private/tmp checkout; candidate source changes copied before final checks; exact tested source hashes recorded; no commits created",
+  "status": "local release candidate verified; maintainer commit/tag/publication pending"
+}
