@@ -123,6 +123,7 @@ class LineageSettings(ImmutableModel):
 
 
 class TrackingSettings(ImmutableModel):
+    candidate_role: Literal["static", "streaming"] = "streaming"
     tracking_uri: str = "sqlite:///artifacts/mlflow/mlflow.db"
     local_artifact_root: Path = Path("artifacts/mlflow/runs")
     experiment_name: str = "tripml-training"

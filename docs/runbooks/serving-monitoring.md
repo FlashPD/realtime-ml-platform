@@ -55,8 +55,10 @@ any dashboard capture.
 
 - **No data:** Check serving pods, `/metrics`, target discovery and scrape errors. No traffic makes
   ratios/quantiles undefined. Missing targets are not displayed as proof of zero errors.
-- **100% fallback:** Expected in the batch release when valid online features are absent. Check
-  feature lookup outcomes before calling it an incident. The deployed model is then the static sibling.
+- **100% fallback:** The version-1 field/counter records static feature usage. With readiness mode
+  `static_primary`, this is intentional and Redis is bypassed. In `static_fallback` or
+  `online_with_fallback` mode, check feature lookup outcomes before calling it an incident; the
+  serving path then uses the streaming bundle's static sibling.
 - **Latency:** Server histogram quantiles are estimates, aggregated across pods. They exclude
   client dispatch and network time; headline release latency comes from the client benchmark.
 - **Scrape count:** Successful scrapes are not desired/ready replica counts. Use `kubectl get hpa,pods`

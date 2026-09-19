@@ -3,18 +3,24 @@ from __future__ import annotations
 import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
+import pytest
 from mlflow import MlflowClient
 
 from tripml.contracts import (
-    GateRuleResult,
     ModelMetrics,
-    PromotionDecision,
     PromotionOutcome,
 )
 from tripml.settings import PlatformSettings, TrackingSettings
-from tripml.tracking import create_client, production_reference, publish_training_report
-from tripml.training import TrainingRunReport
+from tripml.tracking import (
+    TrackingError,
+    create_client,
+    production_reference,
+    publish_training_report,
+    run_training_workflow,
+)
+from tripml.training import TrainingError, TrainingInput, TrainingRunReport, evaluate_promotion
 
 NOW = datetime(2024, 5, 1, tzinfo=UTC)
 
@@ -32,7 +38,16 @@ def _metrics(mae: float) -> ModelMetrics:
     )
 
 
-def _report(tmp_path: Path, run_id: str, outcome: PromotionOutcome) -> TrainingRunReport:
+def _report(
+    tmp_path: Path,
+    run_id: str,
+    outcome: PromotionOutcome,
+    *,
+    role: Literal["static", "streaming"] = "streaming",
+    production: TrainingRunReport | None = None,
+    mae: float = 80,
+    holdout_sha256: str = "b" * 64,
+) -> TrainingRunReport:
     directory = tmp_path / "bundles" / run_id
     directory.mkdir(parents=True)
     baseline = directory / "baseline.json"
@@ -47,32 +62,37 @@ def _report(tmp_path: Path, run_id: str, outcome: PromotionOutcome) -> TrainingR
     (directory / "manifest.json").write_text("{}\n", encoding="utf-8")
     passed = outcome is PromotionOutcome.PROMOTE
     streaming_metrics = _metrics(70 if passed else 95)
-    decision = PromotionDecision(
-        candidate_version=f"{run_id}-streaming",
-        candidate_metrics=streaming_metrics,
+    static_metrics = _metrics(mae if passed or role == "streaming" else 95)
+    decision = evaluate_promotion(
+        candidate_version=f"{run_id}-{role}",
+        candidate_metrics=static_metrics if role == "static" else streaming_metrics,
         baseline_metrics=_metrics(100),
-        gate_results=(
-            GateRuleResult(
-                rule="mae_improvement_vs_baseline_pct",
-                observed=30 if passed else 5,
-                threshold=15,
-                passed=passed,
-            ),
-        ),
-        outcome=outcome,
+        max_calibration_error_pct=8,
+        settings=PlatformSettings().promotion_gate,
         decided_at=NOW,
+        production_version="1" if production else None,
+        production_metrics=production.promotion_decision.candidate_metrics if production else None,
     )
-    return TrainingRunReport(
+    report = TrainingRunReport(
+        promotion_role=role,
         run_id=run_id,
         train_months=("2024-01",),
         holdout_month="2024-02",
         train_rows=200,
         holdout_rows=100,
-        inputs=(),
+        inputs=(
+            TrainingInput(
+                month="2024-02",
+                path="gold.parquet",
+                sha256=holdout_sha256,
+                row_count=100,
+                feature_model_version="gold-features-v1",
+            ),
+        ),
         static_features=("pickup_zone_id",),
         streaming_features=("pu_zone_trips_15m",),
         baseline_metrics=_metrics(100),
-        static_candidate_metrics=_metrics(80),
+        static_candidate_metrics=static_metrics,
         streaming_candidate_metrics=streaming_metrics,
         static_max_bucket_calibration_error_pct=8,
         streaming_max_bucket_calibration_error_pct=5,
@@ -89,6 +109,8 @@ def _report(tmp_path: Path, run_id: str, outcome: PromotionOutcome) -> TrainingR
         config_fingerprint="a" * 64,
         trained_at=NOW,
     )
+    (directory / "manifest.json").write_text(report.model_dump_json(), encoding="utf-8")
+    return report
 
 
 def _settings(tmp_path: Path) -> PlatformSettings:
@@ -145,3 +167,150 @@ def test_rejection_does_not_register_or_move_production_alias(tmp_path: Path) ->
     versions = client.search_model_versions(f"name = '{settings.tracking.registered_model_name}'")
     assert len(versions) == 1
     assert len(_all_runs(client, publication.experiment_id)) == 6
+
+
+def _static_settings(tmp_path: Path) -> PlatformSettings:
+    settings = _settings(tmp_path)
+    return settings.model_copy(
+        update={"tracking": settings.tracking.model_copy(update={"candidate_role": "static"})}
+    )
+
+
+def test_static_publication_registers_selected_artifact_and_evidence(tmp_path: Path) -> None:
+    settings = _static_settings(tmp_path)
+    client = create_client(settings)
+    report = _report(tmp_path, "4444444444444444", PromotionOutcome.PROMOTE, role="static")
+    publication = publish_training_report(report, settings, client=client)
+    repeated = publish_training_report(report, settings, client=client)
+    version = client.get_model_version_by_alias(
+        settings.tracking.registered_model_name, "production"
+    )
+    run = client.get_run(version.run_id)
+    assert publication.promotion_role == "static"
+    assert repeated.registered_version == publication.registered_version == "1"
+    assert not repeated.alias_updated
+    assert version.tags["tripml.artifact_sha256"] == report.static_model_sha256
+    assert run.data.tags["tripml.model_role"] == "static_candidate"
+    assert run.data.metrics["mae_seconds"] == report.static_candidate_metrics.mae_seconds
+    manifest = Path(client.download_artifacts(version.run_id, "evidence/manifest.json"))
+    assert TrainingRunReport.model_validate_json(manifest.read_bytes()) == report
+    assert production_reference(client, settings).metrics == report.static_candidate_metrics
+
+
+def test_static_rejection_does_not_register_streaming_winner(tmp_path: Path) -> None:
+    settings = _static_settings(tmp_path)
+    report = _report(tmp_path, "4444444444444444", PromotionOutcome.REJECT, role="static")
+    # The streaming metrics can be better without authorizing a different deployment role.
+    report = report.model_copy(update={"streaming_candidate_metrics": _metrics(60)})
+    Path(report.artifact_directory, "manifest.json").write_text(report.model_dump_json())
+    result = publish_training_report(report, settings)
+    assert result.registered_version is None
+    assert result.production_alias_version is None
+
+
+def test_static_upgrade_compares_incumbent_and_old_retry_cannot_roll_back(tmp_path: Path) -> None:
+    settings = _static_settings(tmp_path)
+    client = create_client(settings)
+    first = _report(tmp_path, "4444444444444444", PromotionOutcome.PROMOTE, role="static")
+    publish_training_report(first, settings, client=client)
+    better = _report(
+        tmp_path,
+        "5555555555555555",
+        PromotionOutcome.PROMOTE,
+        role="static",
+        production=first,
+        mae=70,
+    )
+    assert publish_training_report(better, settings, client=client).production_alias_version == "2"
+    retry = publish_training_report(first, settings, client=client)
+    assert retry.production_alias_version == "2"
+    assert not retry.alias_updated
+
+
+def test_stale_static_report_cannot_replace_an_uncompared_incumbent(tmp_path: Path) -> None:
+    settings = _static_settings(tmp_path)
+    first = _report(tmp_path, "4444444444444444", PromotionOutcome.PROMOTE, role="static")
+    publish_training_report(first, settings)
+    stale = _report(tmp_path, "5555555555555555", PromotionOutcome.PROMOTE, role="static", mae=60)
+    with pytest.raises(TrackingError, match="alias changed"):
+        publish_training_report(stale, settings)
+    assert production_reference(create_client(settings), settings).version == "1"
+
+
+def test_different_holdout_cannot_authorize_static_upgrade(tmp_path: Path) -> None:
+    settings = _static_settings(tmp_path)
+    first = _report(tmp_path, "4444444444444444", PromotionOutcome.PROMOTE, role="static")
+    publish_training_report(first, settings)
+    different = _report(
+        tmp_path,
+        "5555555555555555",
+        PromotionOutcome.PROMOTE,
+        role="static",
+        production=first,
+        mae=60,
+        holdout_sha256="c" * 64,
+    )
+    with pytest.raises(TrackingError, match="same holdout"):
+        publish_training_report(different, settings)
+
+
+def test_model_roles_cannot_share_registry_name(tmp_path: Path) -> None:
+    streaming_settings = _settings(tmp_path)
+    first = _report(tmp_path, "4444444444444444", PromotionOutcome.PROMOTE)
+    publish_training_report(first, streaming_settings)
+    settings = _static_settings(tmp_path)
+    static = _report(tmp_path, "5555555555555555", PromotionOutcome.PROMOTE, role="static")
+    with pytest.raises(TrackingError, match="different model role"):
+        publish_training_report(static, settings)
+    with pytest.raises(TrackingError, match="role differs"):
+        production_reference(create_client(settings), settings)
+
+
+@pytest.mark.parametrize("failure", ["role", "decision", "artifact", "manifest"])
+def test_inconsistent_publication_fails_before_logging(tmp_path: Path, failure: str) -> None:
+    settings = _static_settings(tmp_path)
+    report = _report(tmp_path, "4444444444444444", PromotionOutcome.PROMOTE, role="static")
+    if failure == "role":
+        settings = _settings(tmp_path)
+    elif failure == "decision":
+        report = report.model_copy(update={"static_candidate_metrics": _metrics(1)})
+    elif failure == "artifact":
+        Path(report.static_model_path).write_text("tampered")
+    else:
+        report = report.model_copy(update={"holdout_rows": 101})
+    client = create_client(settings)
+    with pytest.raises((TrackingError, TrainingError)):
+        publish_training_report(report, settings, client=client)
+    assert client.get_experiment_by_name(settings.tracking.experiment_name) is None
+
+
+def test_workflow_supplies_static_incumbent_metrics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _static_settings(tmp_path)
+    first = _report(tmp_path, "4444444444444444", PromotionOutcome.PROMOTE, role="static")
+    publish_training_report(first, settings)
+    better = _report(
+        tmp_path,
+        "5555555555555555",
+        PromotionOutcome.PROMOTE,
+        role="static",
+        production=first,
+        mae=70,
+    )
+
+    def train(
+        active_settings: PlatformSettings,
+        *,
+        production_version: str,
+        production_metrics: ModelMetrics,
+    ) -> TrainingRunReport:
+        assert active_settings.tracking.candidate_role == "static"
+        assert production_version == "1"
+        assert production_metrics == first.static_candidate_metrics
+        return better
+
+    monkeypatch.setattr("tripml.tracking.train_models", train)
+    result = run_training_workflow(settings)
+    assert result.tracking.production_alias_version == "2"

@@ -286,6 +286,87 @@ def test_real_mlflow_publication_to_http_prediction(
         assert response.json()["model_version"] == f"{trained_report.run_id}-static"
 
 
+def test_static_registry_to_http_uses_only_approved_static_model(
+    tmp_path: Path,
+    static_trained_report: TrainingRunReport,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = PlatformSettings(
+        tracking=TrackingSettings(
+            candidate_role="static",
+            registered_model_name="tripml-trip-duration-static",
+            tracking_uri=f"sqlite:///{tmp_path / 'mlflow.db'}",
+            local_artifact_root=tmp_path / "mlartifacts",
+        ),
+        serving=ServingSettings(redis_url=SecretStr("redis://localhost:1")),
+    )
+    publication = publish_training_report(static_trained_report, settings)
+    redis_factory = MagicMock(side_effect=AssertionError("static release must not construct Redis"))
+    monkeypatch.setattr(RedisFeatureStore, "from_settings", redis_factory)
+    publisher = MagicMock(spec=KafkaPredictionPublisher)
+    with TestClient(create_app(settings, publisher=publisher)) as client:
+        ready = client.get("/readyz").json()
+        assert ready["mode"] == "static_primary"
+        assert ready["registry_version"] == publication.registered_version == "1"
+        assert ready["streaming_model_version"] is None
+        response = client.post("/v1/eta", json=PAYLOAD)
+        assert response.status_code == 200
+        prediction = Prediction.model_validate(response.json())
+        assert prediction.model_version == f"{static_trained_report.run_id}-static"
+        assert tuple(prediction.features_used) == STATIC_FEATURES
+        assert prediction.feature_timestamps == {}
+        assert prediction.feature_fallback is True  # Version-1 contract: static features used.
+        publisher.publish.assert_called_once_with(prediction)
+        assert response.headers["X-TripML-Publication"] == "acknowledged"
+    redis_factory.assert_not_called()
+
+
+def test_static_local_bundle_needs_no_streaming_artifact_or_redis(
+    tmp_path: Path,
+    static_trained_report: TrainingRunReport,
+) -> None:
+    bundle = Path(shutil.copytree(static_trained_report.artifact_directory, tmp_path / "bundle"))
+    (bundle / "streaming-model.txt").unlink()
+    store = MagicMock(spec=RedisFeatureStore)
+    with TestClient(create_app(bundle=bundle, feature_store=store)) as client:
+        assert client.get("/readyz").json()["mode"] == "static_primary"
+        assert client.post("/v1/eta", json=PAYLOAD).status_code == 200
+    store.lookup.assert_not_called()
+
+
+@pytest.mark.parametrize("failure", ["role", "checksum", "rejected", "candidate", "gate"])
+def test_static_registry_inconsistency_fails_closed(
+    tmp_path: Path,
+    static_trained_report: TrainingRunReport,
+    failure: str,
+) -> None:
+    report = static_trained_report
+    client = _registry_client(report)
+    version = client.get_model_version_by_alias.return_value
+    version.tags["tripml.artifact_sha256"] = report.static_model_sha256
+    run = client.get_run.return_value
+    run.data.tags["tripml.model_role"] = "static_candidate"
+    run.data.tags["tripml.artifact_sha256"] = report.static_model_sha256
+    manifest = json.loads(Path(report.artifact_directory, "manifest.json").read_text())
+    if failure == "role":
+        run.data.tags["tripml.model_role"] = "streaming_candidate"
+    elif failure == "checksum":
+        version.tags["tripml.artifact_sha256"] = report.streaming_model_sha256
+    elif failure == "rejected":
+        manifest["promotion_decision"]["outcome"] = "reject"
+        manifest["promotion_decision"]["gate_results"][0]["passed"] = False
+    elif failure == "candidate":
+        manifest["promotion_decision"]["candidate_version"] = f"{report.run_id}-streaming"
+    else:
+        manifest["promotion_decision"]["gate_results"][0]["passed"] = False
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(manifest))
+    client.download_artifacts.side_effect = lambda *_args: str(path)
+    with pytest.raises(ServingError, match="promotion evidence"):
+        load_production_model(PlatformSettings(), client=client)
+    client.search_runs.assert_not_called()
+
+
 def _registry_client(report: TrainingRunReport) -> MagicMock:
     client = MagicMock(spec=MlflowClient)
     client.get_model_version_by_alias.return_value = SimpleNamespace(
@@ -322,7 +403,7 @@ def _registry_client(report: TrainingRunReport) -> MagicMock:
     ("failure", "message"),
     [
         ("missing_run", "no source run"),
-        ("unfinished", "finished streaming-model"),
+        ("unfinished", "finished candidate-model"),
         ("metadata", "metadata disagrees"),
         ("missing_sibling", "exactly one"),
         ("ambiguous_sibling", "exactly one"),

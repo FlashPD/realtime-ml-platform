@@ -6,7 +6,7 @@ point-in-time-correct features, event-time stream processing, training/serving p
 model promotion, low-latency serving, closed-loop monitoring, and reproducible operations on
 Kubernetes.
 
-> **Status:** Serving load and autoscaling milestone. The package, contracts, CI gates,
+> **Status:** Explicit static-model release path. The package, contracts, CI gates,
 > bounded-memory bronze-to-silver ingestion, durable PostgreSQL lineage, Airflow 3 orchestration,
 > leakage-safe dbt-duckdb gold features, deterministic model comparison, and explicit promotion
 > gates are implemented. MLflow tracking, conditional registration, and production-alias protection
@@ -22,7 +22,11 @@ Kubernetes.
 > with distribution comparisons and checksummed provenance preserved by the benchmark runner.
 > A [real-data January/February pilot](docs/validation/real-data-pilot.md) trained and evaluated on
 > all accepted rows: static LightGBM reduced holdout MAE by 33.21% to 172.85 seconds and passed
-> unchanged eligibility gates. March and April remain quarantined; no pilot model was published.
+> unchanged eligibility gates. March and April remain quarantined; that original run did not
+> publish a model. A subsequent [static promotion validation](docs/validation/static-model-promotion.md)
+> registered the byte-identical static model in an isolated local pilot registry and verified
+> `static_primary` API behavior. Role isolation, incumbent checks and Redis bypass are implemented;
+> see the [static promotion runbook](docs/runbooks/static-model-promotion.md).
 > Representative real-data load measurements, the stream producer, and the ground-truth joiner remain
 > pending.
 
@@ -54,8 +58,8 @@ The complete design, delivery phases, service objectives, and acceptance criteri
 The active target is the **[batch-serving portfolio release](docs/batch-serving-release.md)**.
 Its checklist separates release requirements from the later streaming roadmap. Local serving
 visibility is now available through an opt-in Prometheus/Grafana profile; see the
-[monitoring runbook](docs/runbooks/serving-monitoring.md). Real-data model comparison, static-model
-promotion semantics, representative load evidence, and final reproduction remain release gates.
+[monitoring runbook](docs/runbooks/serving-monitoring.md). Final release evaluation, deployment of
+the approved static model, representative load evidence, and reproduction remain release gates.
 
 The batch path is complete through a guarded MLflow production alias. "Complete" below means
 implemented, documented, and covered by the repository quality gates; it does not mean that a final
@@ -84,7 +88,8 @@ showcase run has measured the production-shaped objectives yet.
 | Real-data request workloads | Bounded-memory sampling of accepted TLC silver, deterministic request fixtures, explicit DST exclusions, source/sample distributions, source checksums, and benchmark provenance verification |
 | Local serving monitoring | Opt-in Prometheus with per-pod discovery, namespace-scoped RBAC, authenticated Grafana, provisioned serving dashboard, bounded retention, and an isolated kind smoke test |
 | Real-data model pilot | Full January training / February evaluation, three-model comparison, distance-bucket diagnostics, separate static eligibility, resource measurements, checksummed evidence and application smoke test; original release holdout remains blocked by source quality |
-| Engineering documentation | Data card, batch-release checklist, monitoring and pilot runbooks, and sixteen ADRs covering the delivered architecture and validation decisions |
+| Explicit static promotion | Selected-candidate gates and model cards, separate registry roles, incumbent/holdout checks, verified static loading, Redis bypass, and [real-data local registry-to-API evidence](docs/validation/static-model-promotion.md) |
+| Engineering documentation | Data card, batch-release checklist, monitoring and pilot runbooks, and seventeen ADRs covering the delivered architecture and validation decisions |
 
 ### Remaining
 
@@ -238,7 +243,12 @@ The real-data pilot uses a separate January-training / February-holdout configur
 planned March and April partitions remain quarantined by the existing quality gate. Follow the
 [pilot runbook](docs/runbooks/real-data-pilot.md) to reproduce it. Training evidence now includes
 distance-bucket diagnostics for every model and static-model eligibility independently of the
-streaming candidate's promotion decision.
+selected candidate's promotion decision. Set `tracking.candidate_role: static` with a separate
+registered model name to promote the batch model explicitly. Evidence version 3 records that
+choice in the manifest, model card and bundle identifier. See the
+[static pilot configuration](examples/training/static-pilot.yaml) and
+[promotion runbook](docs/runbooks/static-model-promotion.md). Incumbent comparisons require the
+same role and exact holdout bytes; stale reports cannot replace an uncompared incumbent.
 
 Each content-addressed run under `artifacts/training/<run-id>/` contains the native LightGBM model
 files, serialized baseline, evaluation report, input checksums, artifact checksums, promotion
@@ -266,8 +276,10 @@ tripml serve --bundle artifacts/training/<run-id>
 ```
 
 Local-bundle mode accepts unpromoted models and reports a null registry version. The default registry
-mode requires a finished, promoted streaming run and its matching static sibling. Startup verifies
-both models' checksums, feature order, and warm-up predictions before the process becomes ready. Missing,
+mode requires a finished, promoted run of the selected role. A static release loads only its
+approved static model and reports `mode=static_primary`; Redis configuration cannot switch it to
+streaming. A streaming release also loads its matching static sibling. Startup verifies the loaded
+models' checksums, feature order, and warm-up predictions before the process becomes ready. Missing,
 corrupt, or inconsistent artifacts abort startup. The alias is resolved once; restart the process to
 adopt a different version. Registry availability is not a request-time dependency.
 
@@ -282,7 +294,9 @@ curl --fail http://127.0.0.1:8000/metrics
 ```
 
 Without Redis configuration, the API uses the static-feature LightGBM model: `feature_fallback` is
-`true`, `feature_timestamps` is empty, and `model_version` is `<training-run-id>-static`. The returned
+`true`, `feature_timestamps` is empty, and `model_version` is `<training-run-id>-static`. This also
+applies to an intentional static release: the version-1 field and fallback counter indicate static
+feature usage, so interpret them alongside readiness mode. The returned
 `features_used` records the exact model inputs. Pickup time must include an offset; calendar features
 convert to New York time and match gold's Sunday-zero hour-of-week convention. Distances must be
 finite and nonnegative; invalid inputs return HTTP 422. Inference failures return HTTP 503.
@@ -293,8 +307,8 @@ a latency histogram with a 50 ms bucket. Metrics are per process; the CLI runs o
 Representative cluster latency objectives have **not** yet been established. The benchmark below
 provides the measurement path; a synthetic local run alone does not validate those objectives.
 
-Enable online feature reads by pointing the API to a Redis instance populated with the snapshot
-contract described in [ADR-0009](docs/adr/0009-online-feature-serving.md):
+For a streaming release, enable online feature reads by pointing the API to a Redis instance
+populated with the snapshot contract described in [ADR-0009](docs/adr/0009-online-feature-serving.md):
 
 ```bash
 TRIPML_SERVING__REDIS_URL='redis://localhost:6379/0' tripml serve
@@ -324,7 +338,8 @@ TRIPML_TEST_REDIS_URL='redis://127.0.0.1:6379/15' \
   pytest tests/integration/test_online_redis.py --no-cov
 ```
 
-The static sibling has held-out evaluation metrics but is not independently promotion-gated. The
+In streaming mode, the static sibling has held-out evaluation metrics but is not independently
+promotion-gated. An explicit static release is gated on its own metrics. The
 stream producer and operator actions remain pending. Lagged
 Redis snapshots have not yet passed offline/online parity tests. See
 [ADR-0008](docs/adr/0008-initial-prediction-api.md) for the original serving boundary and ADR-0009

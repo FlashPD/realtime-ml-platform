@@ -27,6 +27,7 @@ from prometheus_client import (
     Histogram,
     generate_latest,
 )
+from pydantic import ValidationError
 from starlette.middleware.base import RequestResponseEndpoint
 
 from tripml.contracts import ETARequest, FeatureValue, Prediction, PromotionOutcome
@@ -66,19 +67,22 @@ def _verified_bytes(path: Path, expected: str) -> bytes:
 
 @dataclass(frozen=True)
 class ServingModel:
-    """One startup snapshot containing the streaming model and its static sibling."""
+    """One startup snapshot of the selected model and any approved fallback."""
 
     booster: lgb.Booster
     model_version: str
     registry_version: str | None
     streaming_booster: lgb.Booster | None = None
     streaming_version: str | None = None
+    static_primary: bool = False
 
     def predict(self, request: ETARequest, online: OnlineFeatures | None = None) -> Prediction:
         features = static_features(request)
         booster = self.booster
         version = self.model_version
         feature_names: tuple[str, ...] = STATIC_FEATURES
+        if self.static_primary:
+            online = None
         if online is not None:
             if self.streaming_booster is None or self.streaming_version is None:
                 raise ServingError("streaming model is not loaded")
@@ -102,7 +106,11 @@ class ServingModel:
 
 
 def _load_models(
-    report: TrainingRunReport, path: Path, streaming_path: Path, *, registry_version: str | None
+    report: TrainingRunReport,
+    path: Path,
+    streaming_path: Path | None,
+    *,
+    registry_version: str | None,
 ) -> ServingModel:
     if report.static_features != STATIC_FEATURES or report.streaming_features != STREAMING_FEATURES:
         raise ServingError("unsupported training feature schema")
@@ -110,10 +118,14 @@ def _load_models(
     booster = lgb.Booster(model_str=content.decode("utf-8"))
     if tuple(booster.feature_name()) != STATIC_FEATURES:
         raise ServingError("native model feature order does not match the training contract")
-    streaming_content = _verified_bytes(streaming_path, report.streaming_model_sha256)
-    streaming_booster = lgb.Booster(model_str=streaming_content.decode("utf-8"))
-    if tuple(streaming_booster.feature_name()) != STATIC_FEATURES + STREAMING_FEATURES:
-        raise ServingError("native streaming feature order does not match the training contract")
+    streaming_booster = None
+    if streaming_path is not None:
+        streaming_content = _verified_bytes(streaming_path, report.streaming_model_sha256)
+        streaming_booster = lgb.Booster(model_str=streaming_content.decode("utf-8"))
+        if tuple(streaming_booster.feature_name()) != STATIC_FEATURES + STREAMING_FEATURES:
+            raise ServingError(
+                "native streaming feature order does not match the training contract"
+            )
     if any(item.feature_model_version != "gold-features-v1" for item in report.inputs):
         raise ServingError("unsupported gold feature model version")
     model = ServingModel(
@@ -121,7 +133,8 @@ def _load_models(
         f"{report.run_id}-static",
         registry_version,
         streaming_booster,
-        f"{report.run_id}-streaming",
+        f"{report.run_id}-streaming" if streaming_booster is not None else None,
+        static_primary=report.promotion_role == "static",
     )
     # Warm the same prediction path before becoming ready, including output validation.
     probe = ETARequest(
@@ -155,14 +168,17 @@ def load_local_model(bundle: Path) -> ServingModel:
     report = TrainingRunReport.model_validate_json((bundle / "manifest.json").read_bytes())
     # Resolve fixed filenames inside the supplied bundle, never embedded training-machine paths.
     return _load_models(
-        report, bundle / "static-model.txt", bundle / "streaming-model.txt", registry_version=None
+        report,
+        bundle / "static-model.txt",
+        bundle / "streaming-model.txt" if report.promotion_role == "streaming" else None,
+        registry_version=None,
     )
 
 
 def load_production_model(
     settings: PlatformSettings, *, client: MlflowClient | None = None
 ) -> ServingModel:
-    """Resolve the alias once and verify the static sibling against its promoted bundle."""
+    """Resolve the alias once and load only the model role authorized by its evidence."""
 
     active = client or create_client(settings)
     version = active.get_model_version_by_alias(
@@ -171,26 +187,48 @@ def load_production_model(
     if not version.run_id:
         raise ServingError("production version has no source run")
     run = active.get_run(version.run_id)
-    if (
-        run.info.status != "FINISHED"
-        or run.data.tags.get("tripml.model_role") != "streaming_candidate"
-    ):
-        raise ServingError("production source is not a finished streaming-model run")
+    role = run.data.tags.get("tripml.model_role")
+    if run.info.status != "FINISHED" or role not in {"static_candidate", "streaming_candidate"}:
+        raise ServingError("production source is not a finished candidate-model run")
 
     with tempfile.TemporaryDirectory(prefix="tripml-serving-") as temporary:
         manifest = Path(
             active.download_artifacts(run.info.run_id, "evidence/manifest.json", temporary)
         )
-        report = TrainingRunReport.model_validate_json(manifest.read_bytes())
+        try:
+            report = TrainingRunReport.model_validate_json(manifest.read_bytes())
+        except ValidationError as error:
+            raise ServingError("invalid promotion evidence in registry manifest") from error
+        expected_sha256 = (
+            report.static_model_sha256
+            if report.promotion_role == "static"
+            else report.streaming_model_sha256
+        )
+        expected_metrics = (
+            report.static_candidate_metrics
+            if report.promotion_role == "static"
+            else report.streaming_candidate_metrics
+        )
         if (
             report.promotion_decision.outcome is not PromotionOutcome.PROMOTE
-            or report.promotion_decision.candidate_version != f"{report.run_id}-streaming"
+            or report.promotion_decision.candidate_version
+            != f"{report.run_id}-{report.promotion_role}"
+            or report.promotion_decision.candidate_metrics != expected_metrics
+            or not report.promotion_decision.gate_results
+            or not all(gate.passed for gate in report.promotion_decision.gate_results)
+            or role != f"{report.promotion_role}_candidate"
+            or version.tags.get("tripml.model_role", role) != role
             or version.tags.get("tripml.bundle_run_id") != report.run_id
             or run.data.tags.get("tripml.bundle_run_id") != report.run_id
-            or version.tags.get("tripml.artifact_sha256") != report.streaming_model_sha256
-            or run.data.tags.get("tripml.artifact_sha256") != report.streaming_model_sha256
+            or version.tags.get("tripml.artifact_sha256") != expected_sha256
+            or run.data.tags.get("tripml.artifact_sha256") != expected_sha256
         ):
             raise ServingError("production registry metadata disagrees with promotion evidence")
+        if report.promotion_role == "static":
+            path = Path(
+                active.download_artifacts(run.info.run_id, "model/static-model.txt", temporary)
+            )
+            return _load_models(report, path, None, registry_version=str(version.version))
         streaming_path = Path(
             active.download_artifacts(run.info.run_id, "model/streaming-model.txt", temporary)
         )
@@ -276,7 +314,11 @@ def create_app(
         else:
             model = load_production_model(active_settings)
         try:
-            if store is None and active_settings.serving.redis_url is not None:
+            if (
+                not model.static_primary
+                and store is None
+                and active_settings.serving.redis_url is not None
+            ):
                 if (
                     active_settings.streaming.short_window_seconds != 900
                     or active_settings.streaming.long_window_seconds != 3600
@@ -337,7 +379,9 @@ def create_app(
             raise HTTPException(status_code=503, detail="model is not ready")
         return {
             "status": "ready",
-            "mode": "online_with_fallback" if store is not None else "static_fallback",
+            "mode": "static_primary"
+            if model.static_primary
+            else ("online_with_fallback" if store is not None else "static_fallback"),
             "model_version": model.model_version,
             "streaming_model_version": model.streaming_version,
             "registry_version": model.registry_version,
@@ -355,7 +399,7 @@ def create_app(
         try:
             lookup = (
                 store.lookup(request)
-                if store is not None
+                if store is not None and not model.static_primary
                 else FeatureLookup(LookupOutcome.DISABLED)
             )
             lookups.labels(outcome=lookup.outcome.value).inc()

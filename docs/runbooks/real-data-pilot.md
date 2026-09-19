@@ -50,9 +50,10 @@ training report: successful execution does not mean that promotion gates passed.
 
 Gold manifests record source checksums and resource-configuration fingerprints. Training writes a
 content-addressed bundle under `artifacts/training/<run-id>/` with native model files, baseline,
-manifest, evaluation JSON and model card. Evidence version 2 includes all three models' bucket
-diagnostics and a separate static eligibility decision. `--no-track` leaves the registry untouched.
-Rebuild the serving image from this code before using a version-2 bundle in a later deployment;
+manifest, evaluation JSON and model card. Evidence version 2 added all three models' bucket
+diagnostics and a separate static eligibility decision; current version 3 also records the selected
+promotion role. `--no-track` leaves the registry untouched.
+Rebuild the serving image from this code before using a current bundle in a later deployment;
 older images reject the expanded manifest fields.
 
 An identical training run reuses its verified immutable bundle; a cached rerun is not a fresh
@@ -64,8 +65,10 @@ alongside timing evidence; library versions and shared laptop load can affect re
 
 Inspect MAE/RMSE/MAPE, distance-bucket row counts and calibration, and single-row inference P95.
 Explain failed gates rather than choosing a threshold after observing results. Static eligibility
-is diagnostic; registry publication still targets the streaming-feature candidate under the current
-workflow. A streaming candidate's success does not establish that its static sibling is eligible.
+is diagnostic; the original pilot configuration still selects the streaming-feature candidate by
+default. For independently gated static publication, use the separate
+[static promotion runbook](static-model-promotion.md). A streaming candidate's success does not
+establish that its static sibling is eligible.
 
 TLC distance is measured over the completed trip. The pilot does not validate a pre-trip route
 distance estimator, streaming feature parity, HTTP latency or generalization to April. February is

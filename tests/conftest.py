@@ -4,6 +4,7 @@ import os
 import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import pyarrow as pa
@@ -16,6 +17,7 @@ from tripml.settings import (
     ModelSettings,
     PlatformSettings,
     PromotionGateSettings,
+    TrackingSettings,
     TrainingSettings,
 )
 from tripml.training import TrainingRunReport, train_models
@@ -68,6 +70,17 @@ def online_snapshots() -> tuple[OnlineZoneWindowFeatures, ...]:
 
 @pytest.fixture(scope="session")
 def trained_report(tmp_path_factory: pytest.TempPathFactory) -> TrainingRunReport:
+    return _train_serving_fixture(tmp_path_factory, "streaming")
+
+
+@pytest.fixture(scope="session")
+def static_trained_report(tmp_path_factory: pytest.TempPathFactory) -> TrainingRunReport:
+    return _train_serving_fixture(tmp_path_factory, "static")
+
+
+def _train_serving_fixture(
+    tmp_path_factory: pytest.TempPathFactory, role: Literal["static", "streaming"]
+) -> TrainingRunReport:
     # Keep fixture training independent of a developer's configured platform paths.
     with pytest.MonkeyPatch.context() as isolated:
         for key in tuple(os.environ):
@@ -75,6 +88,7 @@ def trained_report(tmp_path_factory: pytest.TempPathFactory) -> TrainingRunRepor
                 isolated.delenv(key)
         root = tmp_path_factory.mktemp("serving-training")
         settings = PlatformSettings(
+            tracking=TrackingSettings(candidate_role=role),
             ingestion=IngestionSettings(data_root=root / "data"),
             training=TrainingSettings(
                 train_months=("2024-01",),
@@ -99,7 +113,9 @@ def trained_report(tmp_path_factory: pytest.TempPathFactory) -> TrainingRunRepor
                         "pickup_zone_id": [161] * count,
                         "dropoff_zone_id": [236] * count,
                         "pickup_hour_of_week": [36] * count,
-                        "trip_distance_miles": [3.2] * count,
+                        "trip_distance_miles": (
+                            3.0 + signal * 0.05 if role == "static" else [3.2] * count
+                        ),
                         "passenger_count": [2] * count,
                         "pu_zone_trips_15m": signal,
                         "pu_zone_mean_speed_15m": 10 + signal,

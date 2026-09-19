@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict
 
 from tripml.contracts import ModelMetrics, PromotionOutcome
 from tripml.settings import PlatformSettings
-from tripml.training import TrainingRunReport, train_models
+from tripml.training import TrainingRunReport, _load_verified_report, train_models
 
 RESOURCE_DOES_NOT_EXIST = "RESOURCE_DOES_NOT_EXIST"
 RESOURCE_ALREADY_EXISTS = "RESOURCE_ALREADY_EXISTS"
@@ -39,6 +39,8 @@ class FrozenModel(BaseModel):
 class ProductionReference(FrozenModel):
     version: str
     metrics: ModelMetrics
+    holdout_month: str | None = None
+    holdout_sha256: str | None = None
 
 
 class TrackedModelRun(FrozenModel):
@@ -48,6 +50,7 @@ class TrackedModelRun(FrozenModel):
 
 
 class TrackingPublication(FrozenModel):
+    promotion_role: str = "streaming"
     experiment_id: str
     runs: tuple[TrackedModelRun, ...]
     registered_model_name: str
@@ -169,7 +172,15 @@ def _log_model_run(
             "tripml.model_role": role.value,
             "tripml.artifact_sha256": artifact_sha256,
             "tripml.config_fingerprint": report.config_fingerprint,
-            "tripml.promotion_outcome": report.promotion_decision.outcome.value,
+            "tripml.promotion_outcome": (
+                report.promotion_decision.outcome.value
+                if role.value == f"{report.promotion_role}_candidate"
+                else "not_selected"
+            ),
+            "tripml.promotion_role": report.promotion_role,
+            "tripml.holdout_sha256": next(
+                (item.sha256 for item in report.inputs if item.month == report.holdout_month), ""
+            ),
         },
     )
     run_id = run.info.run_id
@@ -203,7 +214,7 @@ def _log_model_run(
         for key, value in metric_values.items():
             client.log_metric(run_id, key, float(value), timestamp=timestamp_ms, step=0)
         client.log_artifact(run_id, str(artifact), artifact_path="model")
-        if role is ModelRole.STREAMING:
+        if role in {ModelRole.STATIC, ModelRole.STREAMING}:
             evidence_directory = Path(report.artifact_directory)
             for name in ("manifest.json", "evaluation.json", "model-card.md"):
                 client.log_artifact(
@@ -257,7 +268,13 @@ def production_reference(
         raise
     if version.run_id is None:
         raise TrackingError(f"production model version has no source run: {version.version}")
-    metrics = client.get_run(version.run_id).data.metrics
+    run = client.get_run(version.run_id)
+    expected_role = f"{settings.tracking.candidate_role}_candidate"
+    if run.info.status != "FINISHED" or run.data.tags.get("tripml.model_role") != expected_role:
+        raise TrackingError(
+            "production model role differs from candidate; use a separate registry name"
+        )
+    metrics = run.data.metrics
     required = ("mae_seconds", "rmse_seconds", "mape_pct", "inference_p95_ms")
     missing = [key for key in required if key not in metrics]
     if missing:
@@ -265,6 +282,8 @@ def production_reference(
     return ProductionReference(
         version=str(version.version),
         metrics=ModelMetrics(**{key: metrics[key] for key in required}),
+        holdout_month=run.data.params.get("holdout_month"),
+        holdout_sha256=run.data.tags.get("tripml.holdout_sha256"),
     )
 
 
@@ -277,53 +296,96 @@ def publish_training_report(
     """Log all model paths and move the production alias only after a passing decision."""
 
     active_client = client or create_client(settings)
+    if report.promotion_role != settings.tracking.candidate_role:
+        raise TrackingError("configured candidate role disagrees with training evidence")
+    selected_role = ModelRole(f"{report.promotion_role}_candidate")
+    decision = report.promotion_decision
+    if (
+        decision.candidate_version != f"{report.run_id}-{report.promotion_role}"
+        or decision.candidate_metrics != _metrics_for_role(report, selected_role)
+        or decision.baseline_metrics != report.baseline_metrics
+        or (
+            decision.outcome is PromotionOutcome.PROMOTE
+            and (
+                not decision.gate_results or not all(gate.passed for gate in decision.gate_results)
+            )
+        )
+    ):
+        raise TrackingError("selected model disagrees with promotion evidence")
+    directory = Path(report.artifact_directory)
+    if _load_verified_report(directory / "manifest.json", directory) != report:
+        raise TrackingError("report disagrees with the artifact manifest")
     experiment = _experiment(active_client, settings)
     runs = tuple(
         _log_model_run(active_client, experiment.experiment_id, settings, report, role)
         for role in ModelRole
     )
-    streaming_run = next(item for item in runs if item.role is ModelRole.STREAMING)
+    selected_run = next(item for item in runs if item.role is selected_role)
     model_name = settings.tracking.registered_model_name
     alias = settings.tracking.production_alias
     registered_version: str | None = None
     alias_updated = False
 
-    if report.promotion_decision.outcome is PromotionOutcome.PROMOTE:
+    if decision.outcome is PromotionOutcome.PROMOTE:
         _registered_model(active_client, model_name)
         existing_versions = active_client.search_model_versions(f"name = '{model_name}'")
+        for version in existing_versions:
+            if (
+                not version.run_id
+                or active_client.get_run(version.run_id).data.tags.get("tripml.model_role")
+                != selected_role.value
+            ):
+                raise TrackingError("registry contains a different model role; use a separate name")
         existing = next(
             (
                 version
                 for version in existing_versions
                 if version.tags.get("tripml.bundle_run_id") == report.run_id
+                and version.run_id == selected_run.run_id
             ),
             None,
         )
         if existing is None:
+            incumbent = production_reference(active_client, settings)
+            incumbent_version = incumbent.version if incumbent is not None else None
+            if decision.production_version != incumbent_version:
+                raise TrackingError(
+                    "production alias changed since evaluation; retrain before publishing"
+                )
+            if incumbent is not None and decision.production_metrics != incumbent.metrics:
+                raise TrackingError("incumbent metrics disagree with promotion evidence")
+            if incumbent is not None:
+                _validate_holdout(report, incumbent)
             existing = active_client.create_model_version(
                 name=model_name,
-                source=f"runs:/{streaming_run.run_id}/model",
-                run_id=streaming_run.run_id,
+                source=f"runs:/{selected_run.run_id}/model",
+                run_id=selected_run.run_id,
                 tags={
                     "tripml.bundle_run_id": report.run_id,
-                    "tripml.artifact_sha256": report.streaming_model_sha256,
+                    "tripml.artifact_sha256": selected_run.artifact_sha256,
+                    "tripml.model_role": selected_role.value,
                 },
-                description="Streaming-feature candidate that passed every promotion gate",
+                description=(
+                    f"{report.promotion_role.capitalize()} candidate "
+                    "that passed every promotion gate"
+                ),
             )
-            newly_registered = True
-        else:
-            newly_registered = False
+        if existing.tags.get("tripml.artifact_sha256") != selected_run.artifact_sha256:
+            raise TrackingError("registered artifact disagrees with the selected model")
         registered_version = str(existing.version)
         current_alias = _alias_version(active_client, model_name, alias)
         can_advance = current_alias is None or int(registered_version) >= int(current_alias)
         if can_advance and current_alias != registered_version:
+            if current_alias != decision.production_version:
+                raise TrackingError(
+                    "production alias changed since evaluation; retrain before publishing"
+                )
             active_client.set_registered_model_alias(model_name, alias, registered_version)
             alias_updated = True
-        elif newly_registered and not can_advance:
-            alias_updated = False
 
     alias_version = _alias_version(active_client, model_name, alias)
     return TrackingPublication(
+        promotion_role=report.promotion_role,
         experiment_id=experiment.experiment_id,
         runs=runs,
         registered_model_name=model_name,
@@ -332,6 +394,18 @@ def publish_training_report(
         production_alias_version=alias_version,
         alias_updated=alias_updated,
     )
+
+
+def _validate_holdout(report: TrainingRunReport, production: ProductionReference) -> None:
+    holdout_sha256 = next(
+        (item.sha256 for item in report.inputs if item.month == report.holdout_month), None
+    )
+    if (
+        production.holdout_month != report.holdout_month
+        or not holdout_sha256
+        or production.holdout_sha256 != holdout_sha256
+    ):
+        raise TrackingError("incumbent comparison requires the same holdout month and checksum")
 
 
 def run_training_workflow(
@@ -346,5 +420,7 @@ def run_training_workflow(
         production_version=production.version if production is not None else None,
         production_metrics=production.metrics if production is not None else None,
     )
+    if production is not None:
+        _validate_holdout(report, production)
     publication = publish_training_report(report, settings, client=active_client)
     return TrainingWorkflowReport(training=report, tracking=publication)

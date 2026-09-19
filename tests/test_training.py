@@ -15,6 +15,7 @@ from tripml.settings import (
     ModelSettings,
     PlatformSettings,
     PromotionGateSettings,
+    TrackingSettings,
     TrainingSettings,
 )
 from tripml.training import (
@@ -222,7 +223,7 @@ def test_training_compares_candidates_gates_and_publishes_native_artifacts(
         report.static_candidate_metrics.mae_seconds
     )
     assert report.promotion_decision.outcome is PromotionOutcome.PROMOTE
-    assert report.evidence_version == 2
+    assert report.evidence_version == 3
     assert report.static_eligibility_decision is not None
     assert report.static_eligibility_decision.outcome is PromotionOutcome.REJECT
     assert report.static_eligibility_decision.production_version is None
@@ -246,6 +247,33 @@ def test_training_compares_candidates_gates_and_publishes_native_artifacts(
 def test_training_requires_every_configured_gold_partition(tmp_path: Path) -> None:
     with pytest.raises(TrainingDataError, match="gold feature partition"):
         train_models(_settings(tmp_path))
+
+
+def test_static_selection_cannot_reuse_streaming_decision_or_cache(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    _write_gold(settings.ingestion.data_root, "2024-01", 200)
+    _write_gold(settings.ingestion.data_root, "2024-02", 100)
+    streaming = train_models(
+        settings, production_version="1", production_metrics=_metrics(100), now=lambda: NOW
+    )
+    static_settings = settings.model_copy(
+        update={"tracking": TrackingSettings(candidate_role="static")}
+    )
+    static = train_models(
+        static_settings,
+        production_version="1",
+        production_metrics=_metrics(100),
+        now=lambda: NOW,
+    )
+    assert static.run_id != streaming.run_id
+    assert streaming.promotion_decision.outcome is PromotionOutcome.PROMOTE
+    assert static.promotion_role == "static"
+    assert static.promotion_decision.outcome is PromotionOutcome.REJECT
+    assert static.promotion_decision.candidate_version == f"{static.run_id}-static"
+    assert static.promotion_decision.candidate_metrics == static.static_candidate_metrics
+    assert static.promotion_decision.production_version == "1"
+    assert static.promotion_decision.gate_results[-1].rule == "mae_improvement_vs_production_pct"
+    assert "Static-candidate promotion decision" in Path(static.model_card_path).read_text()
 
 
 def test_training_rejects_small_or_incompatible_datasets(tmp_path: Path) -> None:

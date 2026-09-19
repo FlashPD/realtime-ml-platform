@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from itertools import pairwise
 from pathlib import Path
 from time import perf_counter_ns
-from typing import Self
+from typing import Literal, Self
 
 import lightgbm as lgb
 import numpy as np
@@ -87,6 +87,7 @@ class DistanceBucketMetrics(FrozenModel):
 
 class TrainingRunReport(FrozenModel):
     evidence_version: int = 1
+    promotion_role: Literal["static", "streaming"] = "streaming"
     run_id: str = Field(pattern=r"^[0-9a-f]{16}$")
     train_months: tuple[str, ...]
     holdout_month: str
@@ -509,7 +510,7 @@ and does not compare it with a streaming-model incumbent.
 |---|---:|---:|:---:|
 {static_rows}
 
-## Streaming-candidate promotion decision
+## {report.promotion_role.capitalize()}-candidate promotion decision
 
 **{decision.outcome.value.upper()}** `{decision.candidate_version}`.
 
@@ -547,7 +548,8 @@ def _run_identifier(
     production_metrics: ModelMetrics | None,
 ) -> str:
     payload = {
-        "evidence_version": 2,
+        "evidence_version": 3,
+        "promotion_role": settings.tracking.candidate_role,
         "inputs": [item.model_dump(mode="json", exclude={"path"}) for item in inputs],
         "training": settings.training.model_dump(mode="json", exclude={"artifact_root"}),
         "promotion_gate": settings.promotion_gate.model_dump(mode="json"),
@@ -681,11 +683,12 @@ def train_models(
         holdout.target, streaming_predictions, holdout.distance
     )
     trained_at = now()
+    role = settings.tracking.candidate_role
     decision = evaluate_promotion(
-        candidate_version=f"{run_id}-streaming",
-        candidate_metrics=streaming_metrics,
+        candidate_version=f"{run_id}-{role}",
+        candidate_metrics=static_metrics if role == "static" else streaming_metrics,
         baseline_metrics=baseline_metrics,
-        max_calibration_error_pct=streaming_calibration,
+        max_calibration_error_pct=static_calibration if role == "static" else streaming_calibration,
         settings=settings.promotion_gate,
         decided_at=trained_at,
         production_version=production_version,
@@ -713,7 +716,8 @@ def train_models(
         static_booster.save_model(temporary / "static-model.txt")
         streaming_booster.save_model(temporary / "streaming-model.txt")
         report = TrainingRunReport(
-            evidence_version=2,
+            evidence_version=3,
+            promotion_role=role,
             run_id=run_id,
             train_months=settings.training.train_months,
             holdout_month=settings.training.holdout_month,
