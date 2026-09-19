@@ -118,5 +118,5 @@ Stop temporary port forwards with Ctrl-C when finished. Leave the deployed servi
 To disable only the API, apply `--set serving.enabled=false` with `--reset-then-reuse-values`;
 retain MLflow, its data, and the prediction topic. Do not delete the cluster as API teardown.
 
-This smoke establishes deployment correctness. Representative load, monitoring captures, broker
-failure/recovery, and clean-checkout reproduction remain separate release acceptance checks.
+This smoke establishes deployment correctness. Separate [operations evidence](../validation/approved-model-operations.md)
+and [clean-checkout verification](../validation/clean-checkout.md) record the other completed checks.

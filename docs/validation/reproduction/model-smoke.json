@@ -1,0 +1,111 @@
+{
+  "passed": true,
+  "captured_at": "2026-09-19T15:16:26.356983+00:00",
+  "scope": "Relocated bundle and in-process HTTP; no training/cluster/load rerun",
+  "python": "3.12.12",
+  "platform": "macOS-26.6.2-arm64-arm-64bit",
+  "packages": {
+    "lightgbm": "4.7.0",
+    "numpy": "2.5.3",
+    "fastapi": "0.136.3"
+  },
+  "readiness": {
+    "status": "ready",
+    "mode": "static_primary",
+    "model_version": "98ef1dd9ef4447f7-static",
+    "streaming_model_version": null,
+    "registry_version": null,
+    "feature_model_version": "gold-features-v2",
+    "publication_mode": "disabled"
+  },
+  "predictions": {
+    "known_positive": {
+      "request": {
+        "schema_version": "1.1",
+        "trip_id": "yellow:2024-04:1205743",
+        "pickup_zone_id": 107,
+        "dropoff_zone_id": 231,
+        "pickup_time": "2024-04-12T16:07:29-04:00",
+        "trip_distance_miles": 2.81,
+        "passenger_count": 1
+      },
+      "prediction": {
+        "prediction_id": "ae760475-2981-4114-af2e-2504b38a840c",
+        "trip_id": "yellow:2024-04:1205743",
+        "model_version": "98ef1dd9ef4447f7-static",
+        "features_used": {
+          "pickup_zone_id": 107,
+          "dropoff_zone_id": 231,
+          "pickup_hour_of_week": 136,
+          "trip_distance_miles": 2.81,
+          "passenger_count": 1
+        },
+        "feature_timestamps": {},
+        "feature_fallback": true,
+        "estimated_duration_seconds": 1206.2897868634866,
+        "served_at": "2026-09-19T15:16:26.348052Z",
+        "schema_version": "1.1"
+      },
+      "native_seconds": 1206.2897868634866
+    },
+    "unknown": {
+      "request": {
+        "schema_version": "1.1",
+        "trip_id": "yellow:2024-04:3233804",
+        "pickup_zone_id": 114,
+        "dropoff_zone_id": 68,
+        "pickup_time": "2024-04-07T02:35:00-04:00",
+        "trip_distance_miles": 2.54,
+        "passenger_count": null
+      },
+      "prediction": {
+        "prediction_id": "1bc7e564-44b8-4b9f-a9f6-8ebad4d48e6a",
+        "trip_id": "yellow:2024-04:3233804",
+        "model_version": "98ef1dd9ef4447f7-static",
+        "features_used": {
+          "pickup_zone_id": 114,
+          "dropoff_zone_id": 68,
+          "pickup_hour_of_week": 2,
+          "trip_distance_miles": 2.54,
+          "passenger_count": null
+        },
+        "feature_timestamps": {},
+        "feature_fallback": true,
+        "estimated_duration_seconds": 770.617222702674,
+        "served_at": "2026-09-19T15:16:26.350417Z",
+        "schema_version": "1.1"
+      },
+      "native_seconds": 770.617222702674
+    },
+    "zero": {
+      "request": {
+        "schema_version": "1.1",
+        "trip_id": "yellow:2024-04:123656",
+        "pickup_zone_id": 132,
+        "dropoff_zone_id": 216,
+        "pickup_time": "2024-04-02T13:20:03-04:00",
+        "trip_distance_miles": 7.5,
+        "passenger_count": 0
+      },
+      "prediction": {
+        "prediction_id": "75a66af8-5b5c-4827-b78f-9640c8ac8197",
+        "trip_id": "yellow:2024-04:123656",
+        "model_version": "98ef1dd9ef4447f7-static",
+        "features_used": {
+          "pickup_zone_id": 132,
+          "dropoff_zone_id": 216,
+          "pickup_hour_of_week": 61,
+          "trip_distance_miles": 7.5,
+          "passenger_count": 0
+        },
+        "feature_timestamps": {},
+        "feature_fallback": true,
+        "estimated_duration_seconds": 1340.8554464175763,
+        "served_at": "2026-09-19T15:16:26.353257Z",
+        "schema_version": "1.1"
+      },
+      "native_seconds": 1340.8554464175763
+    }
+  },
+  "legacy_null_http_status": 422
+}

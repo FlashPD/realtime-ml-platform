@@ -1,0 +1,110 @@
+{
+  "checks": [
+    {
+      "contract_version": "1.1",
+      "partition": "2024-01",
+      "passed": true,
+      "rule": "any_contract_violation",
+      "threshold": 0.1,
+      "total_rows": 2964624,
+      "violations": 70015
+    },
+    {
+      "contract_version": "1.1",
+      "partition": "2024-01",
+      "passed": true,
+      "rule": "required_fields",
+      "threshold": 0.1,
+      "total_rows": 2964624,
+      "violations": 0
+    },
+    {
+      "contract_version": "1.1",
+      "partition": "2024-01",
+      "passed": true,
+      "rule": "pickup_before_dropoff",
+      "threshold": 0.1,
+      "total_rows": 2964624,
+      "violations": 870
+    },
+    {
+      "contract_version": "1.1",
+      "partition": "2024-01",
+      "passed": true,
+      "rule": "duration_range",
+      "threshold": 0.1,
+      "total_rows": 2964624,
+      "violations": 37104
+    },
+    {
+      "contract_version": "1.1",
+      "partition": "2024-01",
+      "passed": true,
+      "rule": "distance_range",
+      "threshold": 0.1,
+      "total_rows": 2964624,
+      "violations": 59
+    },
+    {
+      "contract_version": "1.1",
+      "partition": "2024-01",
+      "passed": true,
+      "rule": "passenger_count_range",
+      "threshold": 0.1,
+      "total_rows": 2964624,
+      "violations": 0
+    },
+    {
+      "contract_version": "1.1",
+      "partition": "2024-01",
+      "passed": true,
+      "rule": "known_pickup_zone",
+      "threshold": 0.1,
+      "total_rows": 2964624,
+      "violations": 0
+    },
+    {
+      "contract_version": "1.1",
+      "partition": "2024-01",
+      "passed": true,
+      "rule": "known_dropoff_zone",
+      "threshold": 0.1,
+      "total_rows": 2964624,
+      "violations": 0
+    },
+    {
+      "contract_version": "1.1",
+      "partition": "2024-01",
+      "passed": true,
+      "rule": "non_negative_fare",
+      "threshold": 0.1,
+      "total_rows": 2964624,
+      "violations": 37448
+    },
+    {
+      "contract_version": "1.1",
+      "partition": "2024-01",
+      "passed": true,
+      "rule": "timestamps_in_partition",
+      "threshold": 0.1,
+      "total_rows": 2964624,
+      "violations": 618
+    }
+  ],
+  "contract_version": "1.1",
+  "evaluated_at": "2026-09-19T15:19:20.024415Z",
+  "invalid_rows": 70015,
+  "lineage_run_id": null,
+  "max_violation_rate": 0.1,
+  "missing_passenger_rows": 140162,
+  "month": "2024-01",
+  "quarantine_path": "data/passenger-v1_1/quarantine/yellow/month=2024-01/invalid_rows.parquet",
+  "silver_path": "data/passenger-v1_1/silver/yellow/month=2024-01/trips.parquet",
+  "source_path": "data/passenger-v1_1/bronze/yellow/month=2024-01/yellow_tripdata_2024-01.parquet",
+  "source_sha256": "c4d59da7bbc8abaeeeb1727947ee93d9891a71acb42854bd80db1571b2030510",
+  "status": "accepted",
+  "total_rows": 2964624,
+  "valid_missing_passenger_rows": 137245,
+  "valid_rows": 2894609,
+  "violation_rate": 0.02361682290907717
+}

@@ -1,0 +1,98 @@
+bash -n scripts/*.sh
+.venv/bin/python -m ruff check .
+All checks passed!
+.venv/bin/python -m ruff format --check .
+106 files already formatted
+.venv/bin/python -m mypy src
+Success: no issues found in 21 source files
+./scripts/bootstrap-tools.sh helm
+./scripts/validate-chart.sh
+==> Linting /private/tmp/tripml-clean-20260919/deploy/helm/tripml
+[INFO] Chart.yaml: icon is recommended
+
+1 chart(s) linted, 0 chart(s) failed
+==> Linting /private/tmp/tripml-clean-20260919/deploy/helm/tripml
+[INFO] Chart.yaml: icon is recommended
+
+1 chart(s) linted, 0 chart(s) failed
+==> Linting /private/tmp/tripml-clean-20260919/deploy/helm/tripml
+[INFO] Chart.yaml: icon is recommended
+
+1 chart(s) linted, 0 chart(s) failed
+Chart lint and render checks passed
+.venv/bin/python -m pytest
+============================= test session starts ==============================
+platform darwin -- Python 3.12.12, pytest-8.4.2, pluggy-1.6.0
+rootdir: /private/tmp/tripml-clean-20260919
+configfile: pyproject.toml
+testpaths: tests
+plugins: cov-6.3.0, anyio-4.15.1
+collected 337 items
+
+tests/e2e/test_kind_load_evidence.py ..........                          [  2%]
+tests/e2e/test_monitoring_kind.py s                                      [  3%]
+tests/e2e/test_serving_kind.py s                                         [  3%]
+tests/e2e/test_serving_resilience.py s......                             [  5%]
+tests/integration/test_lineage_postgres.py s                             [  5%]
+tests/integration/test_online_redis.py s                                 [  6%]
+tests/integration/test_prediction_publication.py s                       [  6%]
+tests/test_airflow_dag.py ....                                           [  7%]
+tests/test_benchmark.py ...........................                      [ 15%]
+tests/test_cli.py ........                                               [ 18%]
+tests/test_contracts.py ..............                                   [ 22%]
+tests/test_features.py ......                                            [ 24%]
+tests/test_ingestion.py ...............                                  [ 28%]
+tests/test_lineage.py .......                                            [ 30%]
+tests/test_mlflow_chart.py .                                             [ 30%]
+tests/test_monitoring_chart.py .......                                   [ 32%]
+tests/test_online_features.py ............................               [ 41%]
+tests/test_publication.py ................                               [ 45%]
+tests/test_release_operations.py ..........                              [ 48%]
+tests/test_release_package.py .........                                  [ 51%]
+tests/test_release_validation.py ...................                     [ 57%]
+tests/test_serving.py .................................................. [ 72%]
+........                                                                 [ 74%]
+tests/test_serving_chart.py ............                                 [ 78%]
+tests/test_settings.py ......................                            [ 84%]
+tests/test_tracking.py .............                                     [ 88%]
+tests/test_training.py ...............                                   [ 92%]
+tests/test_training_dag.py ..                                            [ 93%]
+tests/test_workflow.py ...                                               [ 94%]
+tests/test_workload.py ...................                               [100%]
+
+=============================== warnings summary ===============================
+.venv/lib/python3.12/site-packages/fastapi/testclient.py:1
+  /private/tmp/tripml-clean-20260919/.venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+.venv/lib/python3.12/site-packages/starlette/testclient.py:53
+  /private/tmp/tripml-clean-20260919/.venv/lib/python3.12/site-packages/starlette/testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================================ tests coverage ================================
+______________ coverage: platform darwin, python 3.12.12-final-0 _______________
+
+Name                                   Stmts   Miss Branch BrPart  Cover   Missing
+----------------------------------------------------------------------------------
+src/tripml/__main__.py                     1      1      0      0     0%   3
+src/tripml/airflow_dags/ingestion.py      31      2      2      0    94%   74, 83
+src/tripml/airflow_dags/training.py       18      1      0      0    94%   49
+src/tripml/benchmark.py                  156      1     34      1    99%   82
+src/tripml/cli.py                        141      5     24      1    96%   146-147, 156-157, 229
+src/tripml/contracts.py                  205      7     44      4    95%   61, 108, 143, 185, 253-255
+src/tripml/features.py                   131      8     26      6    91%   75, 100, 104, 132->exit, 165-166, 172-173, 228
+src/tripml/ingestion.py                  319     14     80     13    93%   173, 176, 181, 183, 185, 188, 191, 212, 231, 253->exit, 525, 527, 590-591, 599
+src/tripml/lineage.py                    106      5     10      0    96%   107-115, 131
+src/tripml/online_features.py             82      1     24      1    98%   53
+src/tripml/serving.py                    222      2     64      1    99%   82, 347
+src/tripml/settings.py                   139      4     28      5    95%   56, 80, 82, 96->102, 206
+src/tripml/tracking.py                   222     24     80     12    86%   75, 99-107, 146, 148, 224-226, 235, 242-244, 253, 268, 270, 281, 356, 374, 380, 423->425
+src/tripml/training.py                   341      9     52      8    96%   372, 376, 378, 381, 633, 672, 678, 686, 841
+src/tripml/workflows/ingestion.py         46      2     10      2    93%   92-98, 108->110
+----------------------------------------------------------------------------------
+TOTAL                                   2354     86    544     54    95%
+
+6 files skipped due to complete coverage.
+Required test coverage of 90% reached. Total coverage: 94.89%
+================= 331 passed, 6 skipped, 2 warnings in 47.47s ==================

@@ -6,7 +6,8 @@ for a senior AI engineering portfolio is the combination of data correctness, mo
 failure behavior, and reproducible measurements.
 
 This is the active release scope. The [full architecture](../arch_plan/realtime-ml-platform-plan.md)
-continues to describe later streaming and closed-loop milestones. No release tag is ready yet.
+continues to describe later streaming and closed-loop milestones. The local release candidate is
+packaged; the maintainer will commit, tag and publish it.
 
 ## Acceptance checklist
 
@@ -19,7 +20,7 @@ continues to describe later streaming and closed-loop milestones. No release tag
 | Serving visibility | [Release monitoring exports](validation/approved-model-operations.md#monitoring-evidence): healthy scrapes, authenticated Grafana, 13 dashboard queries, raw metrics and telemetry figure | Completed; static fallback and undefined feature-age interpretation documented |
 | Representative load | [April load on kind](validation/approved-model-operations.md): 10,000 successes at 100/s, P95 7.99 ms, no errors/drops; acknowledgment enabled and 10,020 benchmark/warm-up events matched | Completed for the declared single-node workload; raw samples, provenance, client percentiles, resource observations and identities retained |
 | Failure behavior | [Isolated broker failure/recovery](validation/approved-model-operations.md#isolated-broker-failure-and-recovery): 120 explicit 503s, acknowledgment recovered in 6.25 s, unchanged API process, complete benchmark-event readback | Completed at the separately declared lower-rate fault profile; delivery uncertainty and cleanup documented |
-| Reproduction and packaging | CLI, Helm, CI and ADRs | Run documented commands from a clean checkout, pin image digests, link measured claims, review limitations, then tag the release |
+| Reproduction and packaging | [Fresh-environment receipt](validation/clean-checkout.md), checksummed archive, dependency/image inventory and [walkthrough](portfolio-walkthrough.md) | Local verification and packaging complete; maintainer commit/tag/publication pending |
 
 The defaults specify a 50 ms client P95 objective and the benchmark defaults allow at most 1%
 errors; dropped arrivals fail independently. Declare offered load, duration, concurrency and
@@ -38,7 +39,8 @@ synthetic evidence to obtain a passing headline.
 4. Run held-out traffic and isolated broker failure/recovery (delivered:
    [operational evidence](validation/approved-model-operations.md)). Reproduce using the
    [operations runbook](runbooks/release-operations.md).
-5. Finish the concise portfolio README, walkthrough, reproducibility check and tagged release.
+5. Local README, walkthrough, reproduction and artifact packaging delivered; follow the
+   [maintainer commands](runbooks/publish-release.md) to commit, tag and publish.
 
 The existing January request sample is a tooling validation; January is a configured training
 month, so that sample cannot stand in for held-out model evaluation. Historical rolling features
