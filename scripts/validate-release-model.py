@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import lightgbm as lgb
 import numpy as np
@@ -92,9 +93,46 @@ def verify_inputs(
 
 
 def validate(
-    report: TrainingRunReport, settings: PlatformSettings, workload: Path, output: Path
+    report: TrainingRunReport,
+    settings: PlatformSettings,
+    workload: Path,
+    output: Path,
+    *,
+    tracking_uri: str | None = None,
 ) -> dict[str, Any]:
     verified = verify_inputs(report, settings, workload)
+    training_settings = settings
+    if tracking_uri is not None:
+        destination = urlsplit(tracking_uri)
+        require(
+            destination.scheme in {"http", "https"}
+            and bool(destination.hostname)
+            and destination.username is None
+            and destination.password is None
+            and not destination.query
+            and not destination.fragment,
+            "destination must be an HTTP(S) tracking URI without credentials, query or fragment",
+        )
+        # Validate immutable evidence first, then change only the deployment destination.
+        # Passing destination settings to publication also prevents local file:// artifacts.
+        settings = settings.model_copy(
+            update={"tracking": settings.tracking.model_copy(update={"tracking_uri": tracking_uri})}
+        )
+    (output / "destination.json").write_text(
+        json.dumps(
+            {
+                "training_config_fingerprint": report.config_fingerprint,
+                "source_tracking_uri": training_settings.tracking.tracking_uri,
+                "destination_tracking_uri": settings.tracking.tracking_uri,
+                "registered_model_name": settings.tracking.registered_model_name,
+                "production_alias": settings.tracking.production_alias,
+                "bundle_run_id": report.run_id,
+                "static_model_sha256": report.static_model_sha256,
+            },
+            indent=2,
+        )
+        + "\n"
+    )
     requests = load_requests(workload / "requests.jsonl")
     selected = {}
     for request in requests:
@@ -168,8 +206,9 @@ def validate(
     (output / "metrics.txt").write_text(metrics)
     return {
         "validated_at": datetime.now(UTC).isoformat(),
-        "scope": "Local MLflow publication and in-process API smoke; no cluster or load claims",
-        "configuration": settings.model_dump(mode="json"),
+        "scope": "MLflow publication and in-process API smoke; no cluster or load claims",
+        "configuration": training_settings.model_dump(mode="json"),
+        "destination_tracking_uri": settings.tracking.tracking_uri,
         "training": report.model_dump(mode="json"),
         "publication": publication.model_dump(mode="json"),
         "publication_retry": retry.model_dump(mode="json"),
@@ -195,12 +234,18 @@ def main() -> int:
     parser.add_argument("--training-report", type=Path, required=True)
     parser.add_argument("--workload", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--tracking-uri",
+        help="Publish to this HTTP(S) registry after verifying the original training configuration",
+    )
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)
     try:
         settings = load_settings(args.config)
         report = TrainingRunReport.model_validate_json(args.training_report.read_bytes())
-        result = validate(report, settings, args.workload, args.output)
+        result = validate(
+            report, settings, args.workload, args.output, tracking_uri=args.tracking_uri
+        )
         result["evidence_checksums"] = {
             str(path): digest(path) for path in (Path(__file__), args.config, args.training_report)
         }

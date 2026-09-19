@@ -1,0 +1,17 @@
+# Local deployment of the approved 98ef1dd9ef4447f7 static bundle.
+# Load the verified image into kind and publish the model before applying this overlay.
+# The tag records the local Docker image ID; verify it rather than assuming tag immutability.
+mlflow:
+  enabled: true
+
+serving:
+  enabled: true
+  image:
+    repository: tripml-serving
+    tag: 16bc98e7d329a2a4065de6b1fedc5f240feaae40d319e887cac9eb65adf6c991
+  registeredModelName: tripml-trip-duration-static-v2
+  productionAlias: production
+  predictionTopic: predictions-batch-release-v2
+  replicas: 1
+  autoscaling:
+    enabled: false

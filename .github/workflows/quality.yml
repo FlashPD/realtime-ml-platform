@@ -13,6 +13,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
+      postgres:
+        image: postgres:16.15-bookworm
+        env:
+          POSTGRES_DB: tripml_test
+          POSTGRES_USER: tripml_test
+          POSTGRES_PASSWORD: tripml_ci_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tripml_test -d tripml_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
       redis:
         image: redis:8.8.0-alpine3.23
         ports:
@@ -54,6 +67,7 @@ jobs:
           exit 1
       - name: Test
         env:
+          TRIPML_TEST_DATABASE_URL: postgresql://tripml_test:tripml_ci_only@127.0.0.1:5432/tripml_test
           TRIPML_TEST_REDIS_URL: redis://127.0.0.1:6379/15
           TRIPML_TEST_KAFKA_BOOTSTRAP_SERVERS: 127.0.0.1:19092
         run: python -m pytest

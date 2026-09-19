@@ -103,8 +103,10 @@ def test_verifies_heldout_lineage_and_canonical_requests(
 @pytest.mark.parametrize(
     "damage", ["gold", "requests", "month", "silver", "context", "config", "gates"]
 )
+@pytest.mark.parametrize("tracking_uri", [None, "http://127.0.0.1:15000"])
 def test_bad_evidence_never_reaches_registry(
     damage: str,
+    tracking_uri: str | None,
     evidence: tuple[TrainingRunReport, PlatformSettings, Path],
     validator: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
@@ -148,5 +150,63 @@ def test_bad_evidence_never_reaches_registry(
     registry = Mock(side_effect=AssertionError("registry must not be reached"))
     monkeypatch.setattr(validator, "create_client", registry)
     with pytest.raises(ValueError, match=r"checksum|holdout|gold input|configuration|gates"):
-        validator.validate(report, settings, workload, tmp_path)
+        validator.validate(report, settings, workload, tmp_path, tracking_uri=tracking_uri)
+    registry.assert_not_called()
+
+
+def test_remote_publication_preserves_training_evidence(
+    evidence: tuple[TrainingRunReport, PlatformSettings, Path],
+    validator: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    report, settings, workload = evidence
+    request = ETARequest.model_validate_json((workload / "requests.jsonl").read_text())
+    requests = workload / "requests.jsonl"
+    requests.write_text(
+        "".join(
+            request.model_copy(update={"passenger_count": count}).model_dump_json() + "\n"
+            for count in (None, 0, 2)
+        )
+    )
+    manifest_path = workload / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["artifacts_sha256"]["requests.jsonl"] = validator.digest(requests)
+    manifest_path.write_text(json.dumps(manifest))
+    monkeypatch.setattr(validator, "_load_verified_report", lambda *_: report)
+    registry = Mock()
+    monkeypatch.setattr(validator, "create_client", registry)
+    publication = Mock(side_effect=RuntimeError("publication boundary"))
+    monkeypatch.setattr(validator, "publish_training_report", publication)
+    destination = "http://127.0.0.1:15000"
+    with pytest.raises(RuntimeError, match="publication boundary"):
+        validator.validate(report, settings, workload, tmp_path, tracking_uri=destination)
+    target = registry.call_args.args[0]
+    assert target.tracking.tracking_uri == destination
+    assert settings.tracking.tracking_uri != destination
+    assert settings.fingerprint == report.config_fingerprint
+    publication.assert_called_once_with(report, target, client=registry.return_value)
+    receipt = json.loads((tmp_path / "destination.json").read_text())
+    assert receipt["training_config_fingerprint"] == report.config_fingerprint
+    assert receipt["destination_tracking_uri"] == destination
+    assert receipt["static_model_sha256"] == report.static_model_sha256
+
+
+@pytest.mark.parametrize(
+    "destination",
+    ["file:///tmp/models", "http://user:password@localhost", "http://localhost?token=secret"],
+)
+def test_invalid_destination_never_reaches_registry(
+    destination: str,
+    evidence: tuple[TrainingRunReport, PlatformSettings, Path],
+    validator: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    report, settings, workload = evidence
+    monkeypatch.setattr(validator, "_load_verified_report", lambda *_: report)
+    registry = Mock()
+    monkeypatch.setattr(validator, "create_client", registry)
+    with pytest.raises(ValueError, match="destination must"):
+        validator.validate(report, settings, workload, tmp_path, tracking_uri=destination)
     registry.assert_not_called()

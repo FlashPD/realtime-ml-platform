@@ -8,14 +8,17 @@ behavior, and measurements that can be traced to their inputs.
 The active target is the **[batch-serving portfolio release](docs/batch-serving-release.md)**.
 The batch pipeline, MLflow registry integration, Kubernetes serving, acknowledged prediction
 publication, and Prometheus/Grafana monitoring are implemented. The full January–March / April
-evaluation passed, and the approved static model is registered. Its Kubernetes deployment and
-operational measurements remain release gates.
+evaluation passed, and the approved static model is deployed on Kubernetes with verified broker
+delivery, representative load, monitoring exports, and isolated broker failure/recovery evidence.
+Clean-checkout reproduction and portfolio release packaging remain.
 
 ## Evidence so far
 
 | Evidence | Measured result | Scope |
 |---|---|---|
 | [Full release evaluation](docs/validation/batch-release-model.md) | Static MAE **187.18 s**, **25.78%** below baseline; all fixed gates passed | **9.32M** January–March training trips / **3.42M** April holdout trips; registry version 1 and known/unknown-count API validation |
+| [Approved model deployment](docs/validation/approved-model-deployment.md) | Ready on kind; **3/3** real April cohort predictions matched native inference and consumed broker events | Exact approved artifact, cluster MLflow, acknowledged publication; deployment smoke, not load evidence |
+| [April load and broker recovery](docs/validation/approved-model-operations.md) | **10,000** successes at **100 requests/s**, **7.99 ms P95**, zero errors/drops; isolated recovery in **6.25 s** | In-cluster acknowledged serving, Prometheus/Grafana exports, complete benchmark-event readback; one local load run, separate lower-rate failure suite |
 | [Local HTTP preflight](docs/validation/batch-release-model.md#local-http-preflight) | **10,000** successes at **100 requests/s**, **5.88 ms P95**, zero errors or dropped arrivals | April sample through the approved model on host loopback; broker disabled; cluster load remains pending |
 | [Original model pilot](docs/validation/real-data-pilot.md) | Static MAE **172.85 s**, **33.21%** below the median baseline | All accepted January training / February holdout trips under the original strict contract |
 | [Guarded static promotion](docs/validation/static-model-promotion.md) | The same native model was registered and served through the API | Isolated local registry and in-process HTTP smoke |
@@ -51,12 +54,14 @@ retraining remain on the later streaming roadmap. See the
 The active target is the **[batch-serving portfolio release](docs/batch-serving-release.md)**.
 Its checklist separates release requirements from the later streaming roadmap. Local serving
 visibility is now available through an opt-in Prometheus/Grafana profile; see the
-[monitoring runbook](docs/runbooks/serving-monitoring.md). Deployment of the approved real-data static
-model, representative cluster load and failure evidence, and reproduction remain release gates.
+[monitoring runbook](docs/runbooks/serving-monitoring.md). The approved real-data static model is
+[deployed and verified](docs/validation/approved-model-deployment.md), with
+[representative load and isolated broker recovery](docs/validation/approved-model-operations.md).
+Clean-checkout reproduction and release packaging remain.
 
-The batch path is complete through a guarded MLflow production alias. "Complete" below means
-implemented, documented, and covered by the repository quality gates; it does not mean that a final
-showcase run has measured the production-shaped objectives yet.
+The batch path now includes real-model deployment and measured operations. "Complete" below means
+implemented, documented, and tested within each evidence item's stated scope; it does not imply
+production capacity or completion of the later streaming roadmap.
 
 ### Complete
 
@@ -84,6 +89,7 @@ showcase run has measured the production-shaped objectives yet.
 | Explicit static promotion | Selected-candidate gates and model cards, separate registry roles, incumbent/holdout checks, verified static loading, Redis bypass, and [real-data local registry-to-API evidence](docs/validation/static-model-promotion.md) |
 | Unknown passenger counts | Explicit contract 1.1 admission policy, preserved nulls, gold/Redis version isolation, native missing-value inference, known/unknown cohort errors, and [full release gold plus April workload evidence](docs/validation/unknown-passenger-policy.md) |
 | Full batch-model evaluation | All January–March / April rows, unchanged passing static gates, missingness and distance diagnostics, guarded registry version 1, native/API checks, and [exported evidence and model card](docs/validation/batch-release-model.md) |
+| Approved-model operations | [April load and isolated broker recovery](docs/validation/approved-model-operations.md), dashboard/metric exports, exact acknowledged-event readback, unchanged serving process, and verified temporary-resource cleanup |
 | Engineering documentation | Data card, batch-release checklist, monitoring and release runbooks, and eighteen ADRs covering the delivered architecture and validation decisions |
 
 ### Remaining
@@ -91,41 +97,23 @@ showcase run has measured the production-shaped objectives yet.
 For the first portfolio release, the remaining work is deliberately narrower than the full
 architecture:
 
-1. Deploy the approved `98ef1dd9ef4447f7` artifact to kind and run the April workload with broker
-   acknowledgment and monitoring; retain client latency, errors, dropped arrivals and model/image identities.
-2. Capture broker failure and recovery with the release model and explain static serving behavior.
-3. Reproduce the walkthrough from a clean checkout, review every headline claim, and tag the release.
+1. Reproduce the walkthrough from a clean checkout and record dependency/image identities.
+2. Package retrievable checksummed model/evidence artifacts or a verified rebuild path.
+3. Finish the short portfolio walkthrough, review every headline claim, and tag the release.
 
-The larger roadmap below includes work deferred beyond that batch release, particularly the live
-feature producer, parity checks, closed-loop evaluation and request-rate autoscaling.
+The [portfolio completion checklist](docs/portfolio-completion.md) records the latest repository
+and local-cluster audit and ordered acceptance criteria. Use the
+[operations runbook](docs/runbooks/release-operations.md) to repeat the measured load and failure suite.
 
-Estimates are focused engineer-days for one engineer and include implementation, tests, local
-integration, and documentation. They are ranges rather than deadlines.
+| Milestone | Remaining outcome |
+|---|---|
+| Batch-serving portfolio release | Clean-checkout walkthrough, accessible model/evidence artifacts, concise portfolio presentation, and release packaging |
+| Streaming release | Event replay, live event-time features, checkpoint recovery, and measured offline/online parity |
+| Closed-loop platform | Prediction/completion joins, live error and drift monitoring, guarded retraining, request-rate scaling, alerts, and automated fault scenarios |
 
-| Priority | Workstream | Definition of done | Estimate |
-|---:|---|---|---:|
-| 1 | Representative load and request-rate scaling | Use the real-data workload builder with a real-data model and matching online features to measure cluster traffic and dependency degradation; add request-rate scaling with monitoring; authenticate any future operator endpoints | 1–2 days |
-| 2 | Event replay and stream processor | Event-time replayer, registered broker schemas, Bytewax windows and watermarks, late-event policy, Redis writes, checkpoint recovery, and service metrics | 6–8 days |
-| 3 | Offline/online feature parity | Replay a fixture day, compare stream outputs with gold, report mismatch rate and maximum difference, and fail on skew | 1–2 days |
-| 4 | Closed-loop evaluation | Prediction/completion joiner, durable error records, live MAE and coverage, Evidently drift report, and guarded retraining trigger | 4–6 days |
-| 5 | Observability and integration hardening | Prometheus, Grafana, alerts, CI values profile, kind end-to-end workflow, dependency/image scanning, and automated cluster load validation in CI | 4–6 days |
-| 6 | Showcase and failure scenarios | Resumable harness, eight planned fault scenarios, objective assertions, raw exports, generated evidence README, and safe teardown | 6–8 days |
-| 7 | Portfolio release polish | Runbooks, measured headline results, architecture and model evidence links, final limitations review, clean-laptop reproduction, and tagged release | 2–3 days |
-|  | **Full remaining scope** | **Everything in the original architecture and acceptance plan** | **24–35 days** |
-
-### Calendar view
-
-| Target | Included outcome | Expected time |
-|---|---|---:|
-| Batch-serving portfolio release | Serving API on kind, basic dashboards, and a real-data model comparison | 7–11 engineer-days, roughly 1.5–2.5 full-time weeks |
-| Differentiated streaming release | Batch-serving release plus replay, event-time features, recovery, and offline/online parity | 15–21 engineer-days, roughly 3–4.5 full-time weeks |
-| Full planned platform | Closed-loop monitoring, all failure scenarios, complete evidence export, and release polish | 24–35 engineer-days, roughly 5–7 full-time weeks |
-
-At approximately 15 hours per week, the full planned platform is roughly 3.5–5 months. The main
-schedule risks are real-data performance tuning, Bytewax recovery behavior, Kubernetes resource
-pressure on a 16 GB laptop, and integration debugging across the broker, registry, Redis, and
-observability stack. Optional EKS/Terraform work remains outside these estimates and outside the
-release scope.
+Earlier calendar estimates included work that has since shipped. The remaining batch release
+work is reproduction and packaging; estimate streaming separately. Optional cloud deployment
+remains outside the first release scope.
 
 ## Quick start
 

@@ -139,7 +139,7 @@ spec:
               --workers 1
               --backend-store-uri "${MLFLOW_BACKEND_STORE_URI}"
               --artifacts-destination "s3://{{ .Values.mlflow.artifactBucket }}"
-              --allowed-hosts "localhost,127.0.0.1,{{ include "tripml.fullname" . }}-mlflow,{{ include "tripml.fullname" . }}-mlflow:5000"
+              --allowed-hosts "localhost,localhost:*,127.0.0.1,127.0.0.1:*,{{ include "tripml.fullname" . }}-mlflow,{{ include "tripml.fullname" . }}-mlflow:5000"
           env:
             - name: MLFLOW_BACKEND_STORE_URI
               valueFrom:
