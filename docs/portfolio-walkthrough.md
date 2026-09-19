@@ -9,7 +9,7 @@ data rebuilding and fault injection are outside the five-minute presentation.
 “I built a reproducible taxi-duration ML platform that carries data identity through evaluation,
 model promotion and online serving, and makes broker failures visible to the caller.”
 
-Show the [implemented architecture](../README.md#implemented-architecture). Follow the path from
+Show the [implemented architecture](../README.md#implemented-batch-serving-path). Follow the path from
 TLC Parquet through silver, gold, MLflow, FastAPI and acknowledged publication. Airflow schedules
 batch work; Prometheus and Grafana expose serving behavior. The selected model is static; the
 streaming feature producer remains future work.
