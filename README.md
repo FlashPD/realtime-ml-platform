@@ -6,7 +6,8 @@ point-in-time-correct features, event-time stream processing, training/serving p
 model promotion, low-latency serving, closed-loop monitoring, and reproducible operations on
 Kubernetes.
 
-> **Status:** Explicit static-model release path. The package, contracts, CI gates,
+> **Status:** Versioned unknown-passenger support and release data preparation. The package,
+> contracts, CI gates,
 > bounded-memory bronze-to-silver ingestion, durable PostgreSQL lineage, Airflow 3 orchestration,
 > leakage-safe dbt-duckdb gold features, deterministic model comparison, and explicit promotion
 > gates are implemented. MLflow tracking, conditional registration, and production-alias protection
@@ -22,11 +23,17 @@ Kubernetes.
 > with distribution comparisons and checksummed provenance preserved by the benchmark runner.
 > A [real-data January/February pilot](docs/validation/real-data-pilot.md) trained and evaluated on
 > all accepted rows: static LightGBM reduced holdout MAE by 33.21% to 172.85 seconds and passed
-> unchanged eligibility gates. March and April remain quarantined; that original run did not
-> publish a model. A subsequent [static promotion validation](docs/validation/static-model-promotion.md)
+> unchanged eligibility gates. March and April were quarantined under the original strict contract;
+> that run did not publish a model. A subsequent [static promotion validation](docs/validation/static-model-promotion.md)
 > registered the byte-identical static model in an isolated local pilot registry and verified
 > `static_primary` API behavior. Role isolation, incumbent checks and Redis bypass are implemented;
 > see the [static promotion runbook](docs/runbooks/static-model-promotion.md).
+> An opt-in unknown-passenger contract now preserves nulls across ingestion, features and serving,
+> with cohort diagnostics and separate version-2 online feature keys. March and April pass the
+> unchanged 10% partition gate under this explicit policy in an isolated data root. The planned
+> January–March / April model evaluation is still pending; see the
+> [release data evidence](docs/validation/unknown-passenger-policy.md) and
+> [preparation runbook](docs/runbooks/nullable-passenger-release.md).
 > Representative real-data load measurements, the stream producer, and the ground-truth joiner remain
 > pending.
 
@@ -87,9 +94,10 @@ showcase run has measured the production-shaped objectives yet.
 | In-cluster load and HPA harness | Temporary registry and Redis, a Service-addressed load pod, raw CPU/HPA/readiness observations, per-pod traffic evidence, default stabilization, model artifact export, and explicit workload/scaling gates |
 | Real-data request workloads | Bounded-memory sampling of accepted TLC silver, deterministic request fixtures, explicit DST exclusions, source/sample distributions, source checksums, and benchmark provenance verification |
 | Local serving monitoring | Opt-in Prometheus with per-pod discovery, namespace-scoped RBAC, authenticated Grafana, provisioned serving dashboard, bounded retention, and an isolated kind smoke test |
-| Real-data model pilot | Full January training / February evaluation, three-model comparison, distance-bucket diagnostics, separate static eligibility, resource measurements, checksummed evidence and application smoke test; original release holdout remains blocked by source quality |
+| Real-data model pilot | Full January training / February evaluation, three-model comparison, distance-bucket diagnostics, separate static eligibility, resource measurements, checksummed evidence and application smoke test; retained under the original strict data contract |
 | Explicit static promotion | Selected-candidate gates and model cards, separate registry roles, incumbent/holdout checks, verified static loading, Redis bypass, and [real-data local registry-to-API evidence](docs/validation/static-model-promotion.md) |
-| Engineering documentation | Data card, batch-release checklist, monitoring and pilot runbooks, and seventeen ADRs covering the delivered architecture and validation decisions |
+| Unknown passenger counts | Explicit contract 1.1 admission policy, preserved nulls, gold/Redis version isolation, native missing-value inference, known/unknown cohort errors, and [full release gold plus April workload evidence](docs/validation/unknown-passenger-policy.md) |
+| Engineering documentation | Data card, batch-release checklist, monitoring and release runbooks, and eighteen ADRs covering the delivered architecture and validation decisions |
 
 ### Remaining
 
@@ -240,15 +248,23 @@ leaves the registry and production alias unchanged. Use `tripml train --no-track
 local, reproducible model bundle is needed.
 
 The real-data pilot uses a separate January-training / February-holdout configuration while the
-planned March and April partitions remain quarantined by the existing quality gate. Follow the
+original strict March and April partitions remain quarantined. The new
+[batch-release profile](examples/training/batch-release.yaml) opts into versioned unknown-passenger
+support for the planned full split. Follow the
 [pilot runbook](docs/runbooks/real-data-pilot.md) to reproduce it. Training evidence now includes
 distance-bucket diagnostics for every model and static-model eligibility independently of the
 selected candidate's promotion decision. Set `tracking.candidate_role: static` with a separate
-registered model name to promote the batch model explicitly. Evidence version 3 records that
+registered model name to promote the batch model explicitly. Evidence version 3 introduced that
 choice in the manifest, model card and bundle identifier. See the
 [static pilot configuration](examples/training/static-pilot.yaml) and
 [promotion runbook](docs/runbooks/static-model-promotion.md). Incumbent comparisons require the
 same role and exact holdout bytes; stale reports cannot replace an uncompared incumbent.
+
+Evidence version 4 also records training/holdout missing passenger counts and separate known/unknown
+cohort errors. Contract-1.1 gold preserves null counts for LightGBM's native missing-value routing.
+Unknown-count API requests require `schema_version: "1.1"` and `passenger_count: null`; older models
+reject them with HTTP 422. New-model predictions use schema 1.1. See
+[ADR-0018](docs/adr/0018-unknown-passenger-counts.md) for the data and consumer migration boundary.
 
 Each content-addressed run under `artifacts/training/<run-id>/` contains the native LightGBM model
 files, serialized baseline, evaluation report, input checksums, artifact checksums, promotion

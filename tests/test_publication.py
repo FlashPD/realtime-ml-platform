@@ -83,10 +83,17 @@ def publisher() -> Iterator[tuple[KafkaPredictionPublisher, FakeProducer]]:
         active.close()
 
 
+@pytest.mark.parametrize("nullable", [False, True])
 def test_acknowledged_message_preserves_contract_key_timestamp_and_headers(
     publisher: tuple[KafkaPredictionPublisher, FakeProducer],
     prediction: Prediction,
+    nullable: bool,
 ) -> None:
+    if nullable:
+        prediction = Prediction.model_validate(
+            prediction.model_dump()
+            | {"schema_version": "1.1", "features_used": {"passenger_count": None}}
+        )
     active, producer = publisher
     active.publish(prediction)
     [message] = producer.enqueued
@@ -96,7 +103,7 @@ def test_acknowledged_message_preserves_contract_key_timestamp_and_headers(
     assert message["timestamp"] == int(prediction.served_at.timestamp() * 1000)
     assert message["headers"] == {
         "content-type": "application/json",
-        "schema-version": "1.0",
+        "schema-version": prediction.schema_version,
         "prediction-id": str(prediction.prediction_id),
     }
     assert producer.flushed == []

@@ -119,6 +119,42 @@ def test_gold_feature_build_requires_target_silver_partition(tmp_path: Path) -> 
         build_gold_features("2024-01", settings=_settings(tmp_path))
 
 
+def test_nullable_gold_preserves_unknown_and_zero_counts_with_point_in_time_windows(
+    tmp_path: Path,
+) -> None:
+    _write_silver(
+        tmp_path,
+        YearMonth(2024, 1),
+        [
+            _trip("unknown", datetime(2024, 1, 1, 11, 40), 600)
+            | {"passenger_count": None, "contract_version": "1.1"},
+            _trip("zero", datetime(2024, 1, 1, 12), 600)
+            | {"passenger_count": 0, "contract_version": "1.1"},
+        ],
+    )
+    report = build_gold_features("2024-01", settings=_settings(tmp_path))
+    rows = {row["trip_id"]: row for row in pq.ParquetFile(report.output_path).read().to_pylist()}
+    assert report.model_version == "gold-features-v2"
+    assert report.inputs[0].contract_version == "1.1"
+    assert rows["unknown"]["passenger_count"] is None
+    assert rows["zero"]["passenger_count"] == 0
+    assert rows["zero"]["pu_zone_trips_15m"] == 1
+    assert rows["zero"]["pu_zone_features_15m_as_of"] == datetime(2024, 1, 1, 11, 50)
+
+
+def test_mixed_silver_contracts_cannot_silently_change_gold_population(tmp_path: Path) -> None:
+    _write_silver(
+        tmp_path, YearMonth(2023, 12), [_trip("old", datetime(2023, 12, 31, 23, 40), 600)]
+    )
+    _write_silver(
+        tmp_path,
+        YearMonth(2024, 1),
+        [_trip("new", datetime(2024, 1, 1, 0, 10), 600) | {"contract_version": "1.1"}],
+    )
+    with pytest.raises(FeatureSourceError, match="same contract version"):
+        build_gold_features("2024-01", settings=_settings(tmp_path))
+
+
 def test_prior_month_pruning_preserves_completion_time_boundaries(tmp_path: Path) -> None:
     _write_silver(
         tmp_path,

@@ -78,8 +78,16 @@ def static_trained_report(tmp_path_factory: pytest.TempPathFactory) -> TrainingR
     return _train_serving_fixture(tmp_path_factory, "static")
 
 
+@pytest.fixture(scope="session")
+def nullable_trained_report(tmp_path_factory: pytest.TempPathFactory) -> TrainingRunReport:
+    return _train_serving_fixture(tmp_path_factory, "static", missing_passengers=True)
+
+
 def _train_serving_fixture(
-    tmp_path_factory: pytest.TempPathFactory, role: Literal["static", "streaming"]
+    tmp_path_factory: pytest.TempPathFactory,
+    role: Literal["static", "streaming"],
+    *,
+    missing_passengers: bool = False,
 ) -> TrainingRunReport:
     # Keep fixture training independent of a developer's configured platform paths.
     with pytest.MonkeyPatch.context() as isolated:
@@ -105,6 +113,11 @@ def _train_serving_fixture(
         for month, count in (("2024-01", 200), ("2024-02", 100)):
             signal = np.arange(count) % 10
             target = 300 + signal * 50
+            passengers = [None if n % 3 == 0 else n % 3 - 1 for n in range(count)]
+            if missing_passengers:
+                target = np.array(
+                    [900 if value is None else 300 + value * 300 for value in passengers]
+                )
             path = root / f"data/gold/yellow/month={month}/training_features.parquet"
             path.parent.mkdir(parents=True)
             pq.write_table(
@@ -114,15 +127,20 @@ def _train_serving_fixture(
                         "dropoff_zone_id": [236] * count,
                         "pickup_hour_of_week": [36] * count,
                         "trip_distance_miles": (
-                            3.0 + signal * 0.05 if role == "static" else [3.2] * count
+                            3.0 + signal * 0.05
+                            if role == "static" and not missing_passengers
+                            else [3.2] * count
                         ),
-                        "passenger_count": [2] * count,
+                        "passenger_count": passengers if missing_passengers else [2] * count,
                         "pu_zone_trips_15m": signal,
                         "pu_zone_mean_speed_15m": 10 + signal,
                         "pu_zone_mean_duration_60m": target,
                         "do_zone_trips_60m": signal * 2,
                         "actual_duration_seconds": target,
-                        "feature_model_version": ["gold-features-v1"] * count,
+                        "feature_model_version": [
+                            "gold-features-v2" if missing_passengers else "gold-features-v1"
+                        ]
+                        * count,
                     }
                 ),
                 path,

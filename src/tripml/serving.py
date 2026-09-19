@@ -75,8 +75,11 @@ class ServingModel:
     streaming_booster: lgb.Booster | None = None
     streaming_version: str | None = None
     static_primary: bool = False
+    feature_model_version: str = "gold-features-v1"
 
     def predict(self, request: ETARequest, online: OnlineFeatures | None = None) -> Prediction:
+        if request.passenger_count is None and self.feature_model_version != "gold-features-v2":
+            raise ServingError("this model requires a known passenger count")
         features = static_features(request)
         booster = self.booster
         version = self.model_version
@@ -95,6 +98,7 @@ class ServingModel:
         if not math.isfinite(estimate) or estimate <= 0:
             raise ServingError("model returned an invalid duration")
         return Prediction(
+            schema_version="1.1" if self.feature_model_version == "gold-features-v2" else "1.0",
             trip_id=request.trip_id,
             model_version=version,
             features_used=features,
@@ -126,7 +130,11 @@ def _load_models(
             raise ServingError(
                 "native streaming feature order does not match the training contract"
             )
-    if any(item.feature_model_version != "gold-features-v1" for item in report.inputs):
+    feature_versions = {item.feature_model_version for item in report.inputs}
+    if len(feature_versions) != 1 or not feature_versions <= {
+        "gold-features-v1",
+        "gold-features-v2",
+    }:
         raise ServingError("unsupported gold feature model version")
     model = ServingModel(
         booster,
@@ -135,6 +143,7 @@ def _load_models(
         streaming_booster,
         f"{report.run_id}-streaming" if streaming_booster is not None else None,
         static_primary=report.promotion_role == "static",
+        feature_model_version=next(iter(feature_versions)),
     )
     # Warm the same prediction path before becoming ready, including output validation.
     probe = ETARequest(
@@ -325,6 +334,8 @@ def create_app(
                 ):
                     raise ServingError("online features require 900/3600-second windows")
                 store = RedisFeatureStore.from_settings(active_settings.serving)
+            if store is not None and not model.static_primary:
+                store.feature_model_version = model.feature_model_version
             if sink is None and active_settings.publication.bootstrap_servers is not None:
                 sink = KafkaPredictionPublisher.from_settings(active_settings.publication)
             yield
@@ -385,6 +396,7 @@ def create_app(
             "model_version": model.model_version,
             "streaming_model_version": model.streaming_version,
             "registry_version": model.registry_version,
+            "feature_model_version": model.feature_model_version,
             "publication_mode": "acknowledged" if sink is not None else "disabled",
         }
 
@@ -396,6 +408,10 @@ def create_app(
     def predict(request: ETARequest, response: Response) -> Prediction:
         if model is None:
             raise HTTPException(status_code=503, detail="model is not ready")
+        if request.passenger_count is None and model.feature_model_version != "gold-features-v2":
+            raise HTTPException(
+                status_code=422, detail="this model requires a known passenger count"
+            )
         try:
             lookup = (
                 store.lookup(request)

@@ -239,6 +239,68 @@ def test_every_quality_rule_is_reported_independently(tmp_path: Path) -> None:
     }
 
 
+def test_unknown_passenger_policy_preserves_nulls_and_other_quality_rules(tmp_path: Path) -> None:
+    source = tmp_path / "source.parquet"
+    _write_source(
+        source,
+        [
+            _row(passenger_count=None),
+            _row(passenger_count=0),
+            _row(passenger_count=2),
+            _row(passenger_count=None, fare_amount=-1),
+            _row(passenger_count=None, trip_distance=None),
+            _row(passenger_count=1.5),
+            _row(passenger_count=-1),
+            _row(passenger_count=10),
+            _row(passenger_count=float("nan")),
+            _row(passenger_count=float("inf")),
+        ],
+    )
+    paths = PartitionPaths.from_root(tmp_path / "nullable", JANUARY)
+    report = validate_partition(
+        source,
+        JANUARY,
+        paths,
+        max_violation_rate=0.7,
+        batch_size=2,
+        passenger_count_policy="allow_unknown",
+    )
+    assert report.status is PartitionStatus.ACCEPTED
+    assert report.contract_version == "1.1"
+    assert report.missing_passenger_rows == 3
+    assert report.valid_missing_passenger_rows == 1
+    assert report.valid_rows == 3
+    silver = pq.ParquetFile(paths.silver_file).read()
+    assert silver["passenger_count"].to_pylist() == [None, 0, 2]
+    assert silver["contract_version"].to_pylist() == ["1.1"] * 3
+    assert {check.contract_version for check in report.checks} == {"1.1"}
+    strict = validate_partition(
+        source,
+        JANUARY,
+        PartitionPaths.from_root(tmp_path / "strict", JANUARY),
+        max_violation_rate=0.7,
+        batch_size=3,
+    )
+    assert strict.status is PartitionStatus.QUARANTINED
+    assert strict.missing_passenger_rows == 3
+    assert strict.valid_missing_passenger_rows == 0
+
+
+def test_unknown_passenger_policy_keeps_partition_gate_at_ten_percent(tmp_path: Path) -> None:
+    source = tmp_path / "source.parquet"
+    _write_source(source, [_row(passenger_count=None)] * 8 + [_row(PULocationID=0)] * 2)
+    report = validate_partition(
+        source,
+        JANUARY,
+        PartitionPaths.from_root(tmp_path / "nullable", JANUARY),
+        max_violation_rate=0.1,
+        batch_size=2,
+        passenger_count_policy="allow_unknown",
+    )
+    assert report.status is PartitionStatus.QUARANTINED
+    assert report.violation_rate == 0.2
+
+
 def test_rejected_partition_is_quarantined_without_replacing_silver(tmp_path: Path) -> None:
     paths = PartitionPaths.from_root(tmp_path, JANUARY)
     source = tmp_path / "bad.parquet"

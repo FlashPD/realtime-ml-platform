@@ -85,9 +85,20 @@ class DistanceBucketMetrics(FrozenModel):
     calibration_error_pct: float | None = Field(default=None, ge=0)
 
 
+class PassengerCountCohortMetrics(FrozenModel):
+    passenger_count_known: bool
+    rows: int = Field(ge=0)
+    baseline_mae_seconds: float | None = Field(default=None, ge=0)
+    static_mae_seconds: float | None = Field(default=None, ge=0)
+    streaming_mae_seconds: float | None = Field(default=None, ge=0)
+
+
 class TrainingRunReport(FrozenModel):
     evidence_version: int = 1
     promotion_role: Literal["static", "streaming"] = "streaming"
+    train_missing_passenger_rows: int = Field(default=0, ge=0)
+    holdout_missing_passenger_rows: int = Field(default=0, ge=0)
+    passenger_count_cohorts: tuple[PassengerCountCohortMetrics, ...] = ()
     run_id: str = Field(pattern=r"^[0-9a-f]{16}$")
     train_months: tuple[str, ...]
     holdout_month: str
@@ -363,6 +374,17 @@ def _load_input(data_root: Path, month_value: str) -> tuple[TrainingInput, pa.Ta
     versions = pc.unique(table.column(MODEL_VERSION_COLUMN).combine_chunks()).to_pylist()
     if len(versions) != 1 or versions[0] is None:
         raise TrainingDataError(f"gold partition has inconsistent feature model versions: {path}")
+    if versions[0] not in {"gold-features-v1", "gold-features-v2"}:
+        raise TrainingDataError("unsupported gold feature model version")
+    passengers = table.column("passenger_count")
+    if versions[0] == "gold-features-v1" and passengers.null_count:
+        raise TrainingDataError("gold-features-v1 requires known passenger counts")
+    valid_passengers = pc.and_(
+        pc.and_(pc.greater_equal(passengers, 0), pc.less_equal(passengers, 9)),
+        pc.equal(passengers, pc.floor(passengers)),
+    )
+    if not pc.all(pc.fill_null(valid_passengers, True)).as_py():
+        raise TrainingDataError("known passenger counts must be integers from zero through nine")
     item = TrainingInput(
         month=str(month),
         path=str(path.resolve()),
@@ -383,6 +405,29 @@ def _dataset(tables: Sequence[pa.Table]) -> Dataset:
         dtype=np.float64,
     )
     return Dataset(table=table, target=target, distance=distance)
+
+
+def _passenger_count_cohorts(
+    holdout: Dataset, baseline: FloatArray, static: FloatArray, streaming: FloatArray
+) -> tuple[PassengerCountCohortMetrics, ...]:
+    known = np.asarray(pc.is_valid(holdout.table.column("passenger_count")), dtype=np.bool_)
+    cohorts = []
+    for is_known, mask in ((True, known), (False, ~known)):
+        count = int(mask.sum())
+        errors = [
+            float(np.mean(np.abs(values[mask] - holdout.target[mask]))) if count else None
+            for values in (baseline, static, streaming)
+        ]
+        cohorts.append(
+            PassengerCountCohortMetrics(
+                passenger_count_known=is_known,
+                rows=count,
+                baseline_mae_seconds=errors[0],
+                static_mae_seconds=errors[1],
+                streaming_mae_seconds=errors[2],
+            )
+        )
+    return tuple(cohorts)
 
 
 def _train_booster(
@@ -472,6 +517,13 @@ def _model_card(report: TrainingRunReport) -> str:
         )
         for bucket in buckets
     )
+    passenger_rows = "".join(
+        f"| {'Known' if cohort.passenger_count_known else 'Unknown'} | {cohort.rows:,} | "
+        f"{_optional_metric(cohort.baseline_mae_seconds)} | "
+        f"{_optional_metric(cohort.static_mae_seconds)} | "
+        f"{_optional_metric(cohort.streaming_mae_seconds)} |\n"
+        for cohort in report.passenger_count_cohorts
+    )
     return f"""# Trip-duration model card: {report.run_id}
 
 ## Intended use
@@ -490,6 +542,17 @@ for pricing, employment, enforcement, or decisions about individual passengers o
 | Model | MAE (s) | RMSE (s) | MAPE (%) | Inference P95 (ms) |
 |---|---:|---:|---:|---:|
 {metric_rows}
+
+## Passenger-count missingness
+
+Unknown counts remain null in data and use native missing-value routing in LightGBM.
+Zero is an observed count, not an imputation. Training contains
+{report.train_missing_passenger_rows:,} unknown counts; holdout contains
+{report.holdout_missing_passenger_rows:,}. Cohort errors are diagnostics, not new promotion gates.
+
+| Passenger count | Holdout rows | Baseline MAE (s) | Static MAE (s) | Rolling MAE (s) |
+|---|---:|---:|---:|---:|
+{passenger_rows}
 
 ## Distance-bucket diagnostics
 
@@ -548,7 +611,7 @@ def _run_identifier(
     production_metrics: ModelMetrics | None,
 ) -> str:
     payload = {
-        "evidence_version": 3,
+        "evidence_version": 4,
         "promotion_role": settings.tracking.candidate_role,
         "inputs": [item.model_dump(mode="json", exclude={"path"}) for item in inputs],
         "training": settings.training.model_dump(mode="json", exclude={"artifact_root"}),
@@ -716,8 +779,13 @@ def train_models(
         static_booster.save_model(temporary / "static-model.txt")
         streaming_booster.save_model(temporary / "streaming-model.txt")
         report = TrainingRunReport(
-            evidence_version=3,
+            evidence_version=4,
             promotion_role=role,
+            train_missing_passenger_rows=train.table.column("passenger_count").null_count,
+            holdout_missing_passenger_rows=holdout.table.column("passenger_count").null_count,
+            passenger_count_cohorts=_passenger_count_cohorts(
+                holdout, baseline_predictions, static_predictions, streaming_predictions
+            ),
             run_id=run_id,
             train_months=settings.training.train_months,
             holdout_month=settings.training.holdout_month,

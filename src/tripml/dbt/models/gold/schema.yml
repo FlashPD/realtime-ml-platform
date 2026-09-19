@@ -29,4 +29,4 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: ['gold-features-v1']
+                values: ['gold-features-v1', 'gold-features-v2']

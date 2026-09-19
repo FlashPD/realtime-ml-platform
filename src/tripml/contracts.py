@@ -19,6 +19,8 @@ from pydantic import (
 )
 
 SchemaVersion = Literal["1.0"]
+PassengerSchemaVersion = Literal["1.0", "1.1"]
+PassengerCount = Annotated[int, Field(ge=0, le=9)]
 
 
 def _require_aware(value: datetime) -> datetime:
@@ -41,34 +43,49 @@ class ContractModel(BaseModel):
 
 class EventModel(ContractModel):
     event_id: UUID = Field(default_factory=uuid4)
-    schema_version: SchemaVersion = "1.0"
+    schema_version: PassengerSchemaVersion = "1.0"
     event_time: AwareDateTime
 
 
 class TripStarted(EventModel):
+    schema_version: PassengerSchemaVersion = "1.0"
     trip_id: TripId
     pickup_zone_id: ZoneId
     dropoff_zone_id: ZoneId
     trip_distance_miles: NonNegativeFloat
-    passenger_count: NonNegativeInt = Field(le=9)
+    passenger_count: PassengerCount | None
+
+    @model_validator(mode="after")
+    def unknown_passengers_require_new_contract(self) -> Self:
+        if self.passenger_count is None and self.schema_version == "1.0":
+            raise ValueError("unknown passenger count requires schema_version 1.1")
+        return self
 
 
 class TripCompleted(EventModel):
+    schema_version: SchemaVersion = "1.0"
     trip_id: TripId
     actual_duration_seconds: PositiveInt = Field(le=3 * 60 * 60)
     fare_amount: NonNegativeFloat
 
 
 class ETARequest(ContractModel):
+    schema_version: PassengerSchemaVersion = "1.0"
     trip_id: TripId
     pickup_zone_id: ZoneId
     dropoff_zone_id: ZoneId
     pickup_time: AwareDateTime
     trip_distance_miles: float = Field(ge=0, allow_inf_nan=False)
-    passenger_count: NonNegativeInt = Field(le=9)
+    passenger_count: PassengerCount | None
+
+    @model_validator(mode="after")
+    def unknown_passengers_require_new_contract(self) -> Self:
+        if self.passenger_count is None and self.schema_version == "1.0":
+            raise ValueError("unknown passenger count requires schema_version 1.1")
+        return self
 
 
-FeatureValue = float | int | str | bool
+FeatureValue = float | int | str | bool | None
 
 
 class Prediction(ContractModel):
@@ -80,7 +97,16 @@ class Prediction(ContractModel):
     feature_fallback: bool
     estimated_duration_seconds: float = Field(gt=0, allow_inf_nan=False)
     served_at: AwareDateTime
-    schema_version: SchemaVersion = "1.0"
+    schema_version: PassengerSchemaVersion = "1.0"
+
+    @model_validator(mode="after")
+    def null_features_require_new_contract(self) -> Self:
+        if (
+            any(value is None for value in self.features_used.values())
+            and self.schema_version == "1.0"
+        ):
+            raise ValueError("null features require schema_version 1.1")
+        return self
 
 
 class GroundTruth(ContractModel):
@@ -123,7 +149,7 @@ class OnlineZoneWindowFeatures(ZoneWindowFeatures):
 
     model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
     zone_role: Literal["pickup", "dropoff"]
-    feature_model_version: Literal["gold-features-v1"] = "gold-features-v1"
+    feature_model_version: Literal["gold-features-v1", "gold-features-v2"] = "gold-features-v1"
     source_max_event_time: AwareDateTime | None
 
     @model_validator(mode="after")
@@ -151,7 +177,7 @@ class QualityCheckResult(ContractModel):
     total_rows: NonNegativeInt
     threshold: float = Field(ge=0, le=1)
     passed: bool
-    contract_version: SchemaVersion = "1.0"
+    contract_version: PassengerSchemaVersion = "1.0"
 
     @model_validator(mode="after")
     def counts_and_decision_are_consistent(self) -> Self:
@@ -240,12 +266,45 @@ CONTRACTS: dict[str, type[BaseModel]] = {
     "quality-check-result-v1": QualityCheckResult,
     "promotion-decision-v1": PromotionDecision,
     "drift-report-v1": DriftReport,
+    "eta-request-v1.1": ETARequest,
+    "trip-started-v1.1": TripStarted,
+    "prediction-v1.1": Prediction,
+    "quality-check-result-v1.1": QualityCheckResult,
+    "online-zone-window-features-v2": OnlineZoneWindowFeatures,
 }
 
 
 def contract_schemas() -> dict[str, dict[str, Any]]:
     """Build JSON Schemas keyed by their stable registry subject names."""
 
-    return {
-        name: model.model_json_schema(mode="serialization") for name, model in CONTRACTS.items()
-    }
+    schemas = {}
+    for name, model in CONTRACTS.items():
+        schema = model.model_json_schema(mode="serialization")
+        properties = schema["properties"]
+        version = "1.1" if name.endswith("-v1.1") else "1.0"
+        for field in ("schema_version", "contract_version"):
+            if field in properties:
+                properties[field].pop("enum", None)
+                properties[field].update(const=version, default=version)
+                if version == "1.1":
+                    schema["required"].append(field)
+        if version == "1.0" and "passenger_count" in properties:
+            properties["passenger_count"] = {
+                "title": "Passenger Count",
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9,
+            }
+        if version == "1.0" and "features_used" in properties:
+            values = properties["features_used"]["additionalProperties"]
+            values["anyOf"] = [item for item in values["anyOf"] if item.get("type") != "null"]
+        if "feature_model_version" in properties:
+            feature_version = "gold-features-v2" if name.endswith("-v2") else "gold-features-v1"
+            properties["feature_model_version"].pop("enum", None)
+            properties["feature_model_version"].update(
+                const=feature_version, default=feature_version
+            )
+            if name.endswith("-v2"):
+                schema["required"].append("feature_model_version")
+        schemas[name] = schema
+    return schemas

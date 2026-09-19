@@ -12,6 +12,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
@@ -21,6 +22,7 @@ from tripml.ingestion import TAXI_KIND, YearMonth
 from tripml.settings import FeatureSettings, PlatformSettings
 
 MODEL_VERSION = "gold-features-v1"
+FEATURE_VERSIONS = {"1.0": MODEL_VERSION, "1.1": "gold-features-v2"}
 HASH_CHUNK_SIZE = 1024 * 1024
 
 
@@ -37,6 +39,7 @@ class FrozenModel(BaseModel):
 
 
 class FeatureInput(FrozenModel):
+    contract_version: str = "1.0"
     path: str
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     row_count: int = Field(ge=0)
@@ -87,15 +90,29 @@ def _feature_inputs(data_root: Path, month: YearMonth) -> tuple[FeatureInput, ..
         raise FeatureSourceError(f"accepted silver partition does not exist: {target}")
 
     candidates = (_silver_path(data_root, _previous_month(month)), target)
-    return tuple(
-        FeatureInput(
-            path=str(path.resolve()),
-            sha256=_sha256(path),
-            row_count=pq.ParquetFile(path).metadata.num_rows,
+    inputs = []
+    for path in candidates:
+        if not path.is_file():
+            continue
+        parquet = pq.ParquetFile(path)
+        versions: set[str | None] = set()
+        if "contract_version" not in parquet.schema_arrow.names:
+            raise FeatureSourceError("silver is missing its contract version")
+        for batch in parquet.iter_batches(columns=["contract_version"]):
+            versions.update(pc.unique(batch.column(0)).to_pylist())
+        if len(versions) != 1 or not versions <= FEATURE_VERSIONS.keys():
+            raise FeatureSourceError("silver requires one supported contract version")
+        inputs.append(
+            FeatureInput(
+                contract_version=str(next(iter(versions))),
+                path=str(path.resolve()),
+                sha256=_sha256(path),
+                row_count=parquet.metadata.num_rows,
+            )
         )
-        for path in candidates
-        if path.is_file()
-    )
+    if len({item.contract_version for item in inputs}) != 1:
+        raise FeatureSourceError("target and lookback silver must use the same contract version")
+    return tuple(inputs)
 
 
 def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
@@ -169,6 +186,7 @@ def build_gold_features(
         raise FeatureBuildError("gold-features-v1 requires 900/3600-second windows")
     month = YearMonth.parse(month_value)
     inputs = _feature_inputs(settings.ingestion.data_root, month)
+    model_version = FEATURE_VERSIONS[inputs[-1].contract_version]
     output_path, manifest_path = _gold_paths(settings.ingestion.data_root, month)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     project_dir = Path(str(files("tripml").joinpath("dbt")))
@@ -183,7 +201,7 @@ def build_gold_features(
             "month_end": month.end.isoformat(sep=" "),
             "short_window_seconds": streaming.short_window_seconds,
             "long_window_seconds": streaming.long_window_seconds,
-            "model_version": MODEL_VERSION,
+            "model_version": model_version,
         }
         profiles_dir = temporary_root / "profiles"
         _write_dbt_profile(profiles_dir, temporary_root / "tripml.duckdb", settings.features)
@@ -215,7 +233,7 @@ def build_gold_features(
 
     report = FeatureBuildReport(
         month=str(month),
-        model_version=MODEL_VERSION,
+        model_version=model_version,
         output_path=str(output_path),
         manifest_path=str(manifest_path),
         row_count=row_count,

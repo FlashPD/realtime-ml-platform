@@ -152,3 +152,25 @@ def test_every_contract_exports_a_strict_json_schema() -> None:
     assert schemas.keys() == CONTRACTS.keys()
     assert all(schema["additionalProperties"] is False for schema in schemas.values())
     assert schemas["trip-started-v1"]["properties"]["schema_version"]["const"] == "1.0"
+    assert schemas["trip-started-v1"]["properties"]["passenger_count"]["type"] == "integer"
+    assert schemas["trip-started-v1.1"]["properties"]["schema_version"]["const"] == "1.1"
+    assert {"type": "null"} in schemas["trip-started-v1.1"]["properties"]["passenger_count"][
+        "anyOf"
+    ]
+
+
+def test_null_passenger_count_requires_explicit_minor_contract() -> None:
+    from tripml.contracts import ETARequest
+
+    payload = {
+        "trip_id": "unknown",
+        "pickup_zone_id": 1,
+        "dropoff_zone_id": 2,
+        "pickup_time": NOW,
+        "trip_distance_miles": 2,
+        "passenger_count": None,
+    }
+    with pytest.raises(ValidationError, match=r"requires schema_version 1\.1"):
+        ETARequest(**payload)
+    assert ETARequest(**payload, schema_version="1.1").passenger_count is None
+    assert ETARequest(**(payload | {"passenger_count": 0})).passenger_count == 0

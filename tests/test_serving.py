@@ -334,6 +334,50 @@ def test_static_local_bundle_needs_no_streaming_artifact_or_redis(
     store.lookup.assert_not_called()
 
 
+def test_nullable_model_registry_to_http_preserves_unknown_count_and_distinguishes_zero(
+    tmp_path: Path,
+    nullable_trained_report: TrainingRunReport,
+) -> None:
+    report = nullable_trained_report
+    settings = PlatformSettings(
+        tracking=TrackingSettings(
+            candidate_role="static",
+            registered_model_name="nullable-static",
+            tracking_uri=f"sqlite:///{tmp_path / 'mlflow.db'}",
+            local_artifact_root=tmp_path / "models",
+        )
+    )
+    publish_training_report(report, settings)
+    expected = lgb.Booster(model_file=report.static_model_path).predict(
+        np.array([[161, 236, 36, 3.2, np.nan]]), num_threads=1
+    )[0]
+    with TestClient(create_app(settings)) as client:
+        assert client.get("/readyz").json()["feature_model_version"] == "gold-features-v2"
+        response = client.post(
+            "/v1/eta", json=PAYLOAD | {"schema_version": "1.1", "passenger_count": None}
+        )
+        assert response.status_code == 200
+        prediction = Prediction.model_validate(response.json())
+        assert prediction.features_used["passenger_count"] is None
+        assert prediction.schema_version == "1.1"
+        assert prediction.estimated_duration_seconds == pytest.approx(expected)
+        zero = client.post("/v1/eta", json=PAYLOAD | {"passenger_count": 0}).json()
+        assert zero["features_used"]["passenger_count"] == 0
+        assert prediction.estimated_duration_seconds > zero["estimated_duration_seconds"] + 300
+        assert client.post("/v1/eta", json=PAYLOAD | {"passenger_count": None}).status_code == 422
+
+
+def test_legacy_model_rejects_unknown_count_before_inference_or_publication(bundle: Path) -> None:
+    publisher = MagicMock(spec=KafkaPredictionPublisher)
+    with TestClient(create_app(bundle=bundle, publisher=publisher)) as client:
+        response = client.post(
+            "/v1/eta", json=PAYLOAD | {"schema_version": "1.1", "passenger_count": None}
+        )
+        assert response.status_code == 422
+        assert "known passenger" in response.text
+    publisher.publish.assert_not_called()
+
+
 @pytest.mark.parametrize("failure", ["role", "checksum", "rejected", "candidate", "gate"])
 def test_static_registry_inconsistency_fails_closed(
     tmp_path: Path,

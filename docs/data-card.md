@@ -37,12 +37,12 @@ silver input and the output by SHA-256.
 
 ## Quality contract
 
-A row is valid when:
+Under the default `passenger_count_policy: required` (silver contract 1.0), a row is valid when:
 
 - every required field is present;
 - pickup precedes drop-off and duration is from 60 seconds through 3 hours;
 - distance is from 0 through 100 miles;
-- passenger count is from 0 through 9;
+- passenger count is an integer from 0 through 9;
 - pickup and drop-off zones are in the configured known-zone set (1 through 265 by default);
 - fare is non-negative; and
 - both timestamps are inside the declared source month.
@@ -62,6 +62,22 @@ affect 11.90% and 11.63% of rows. These are observed source-completeness differe
 of a download or schema failure. The threshold remains unchanged. The separately configured
 [pilot](../examples/training/real-data-pilot.yaml) uses January for training and February for
 evaluation; it does not replace the planned April release holdout.
+
+### Explicit unknown-count policy
+
+The opt-in `passenger_count_policy: allow_unknown` produces silver contract 1.1. It treats a null
+passenger count as an unknown optional predictor and preserves it as null. Every other required
+field and row rule remains required. Known counts must still be integer values from zero through
+nine; zero retains its observed meaning. Fractional, negative, out-of-range, NaN and infinite
+counts remain invalid. The passenger-count column itself must be present.
+
+The partition threshold remains 10%. Quality reports expose both total missing counts and missing
+counts among otherwise valid rows; missingness is not hidden inside an imputed value. This changes
+the admitted population, so models and rolling features use `gold-features-v2`, new model artifacts
+and a separate data root. Training and serving retain native missing-value semantics, and reports
+compare known/unknown passenger-count cohorts. The original strict pilot and quarantines remain
+intact. See [ADR-0018](adr/0018-unknown-passenger-counts.md) and the
+[release preparation runbook](runbooks/nullable-passenger-release.md).
 
 ## Known limitations
 

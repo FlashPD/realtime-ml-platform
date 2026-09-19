@@ -15,6 +15,24 @@ from tripml.online_features import LookupOutcome, RedisFeatureStore, feature_key
 from tripml.settings import ServingSettings
 
 
+def test_nullable_feature_keys_and_snapshots_cannot_mix_with_legacy_population(
+    online_snapshots: tuple[OnlineZoneWindowFeatures, ...],
+) -> None:
+    client = MagicMock(spec=Redis)
+    client.mget.return_value = [item.model_dump_json() for item in online_snapshots]
+    store = RedisFeatureStore(client, ServingSettings())
+    store.feature_model_version = "gold-features-v2"
+    assert store.lookup(_request(online_snapshots)).outcome is LookupOutcome.INVALID
+    assert all(key.startswith("tripml:features:v2:") for key in client.mget.call_args.args[0])
+    client.mget.return_value = [
+        item.model_copy(update={"feature_model_version": "gold-features-v2"}).model_dump_json()
+        for item in online_snapshots
+    ]
+    assert store.lookup(_request(online_snapshots)).outcome is LookupOutcome.FRESH
+    store.feature_model_version = "gold-features-v1"
+    assert store.lookup(_request(online_snapshots)).outcome is LookupOutcome.INVALID
+
+
 def _request(snapshots: tuple[OnlineZoneWindowFeatures, ...], offset: float = 0) -> ETARequest:
     return ETARequest(
         trip_id="test-trip",

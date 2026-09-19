@@ -78,6 +78,29 @@ def test_sample_is_reproducible_bounded_and_benchmark_compatible(tmp_path: Path)
     assert "actual_duration_seconds" not in (first / "requests.jsonl").read_text()
 
 
+def test_nullable_workload_preserves_unknown_counts_and_reports_their_distribution(
+    tmp_path: Path,
+) -> None:
+    settings, _, config = _input(tmp_path)
+    source = tmp_path / "source.parquet"
+    table = pq.ParquetFile(source).read()
+    table = table.set_column(
+        table.schema.get_field_index("passenger_count"),
+        "passenger_count",
+        pa.array([None, 0] * 100, type=pa.int16()),
+    )
+    pq.write_table(table, source)
+    config.write_text(config.read_text() + "  passenger_count_policy: allow_unknown\n")
+    execution = run_ingestion("2024-01", config_path=config, source=source)
+    assert execution.report.valid_missing_passenger_rows == 100
+    output = tmp_path / "nullable-workload"
+    report = build_workload("2024-01", settings=settings, output=output, rows=200)
+    assert report["population_profile"]["passengers"] == {"unknown": 100, "0": 100}
+    requests = load_requests(output / "requests.jsonl")
+    assert sum(request.passenger_count is None for request in requests) == 100
+    assert {request.schema_version for request in requests} == {"1.1"}
+
+
 @pytest.mark.parametrize(
     ("month", "pickups", "offset"),
     [

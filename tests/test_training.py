@@ -22,6 +22,7 @@ from tripml.training import (
     HierarchicalMedianBaseline,
     TrainingDataError,
     TrainingError,
+    TrainingRunReport,
     calculate_metrics,
     distance_bucket_metrics,
     evaluate_promotion,
@@ -223,7 +224,7 @@ def test_training_compares_candidates_gates_and_publishes_native_artifacts(
         report.static_candidate_metrics.mae_seconds
     )
     assert report.promotion_decision.outcome is PromotionOutcome.PROMOTE
-    assert report.evidence_version == 3
+    assert report.evidence_version == 4
     assert report.static_eligibility_decision is not None
     assert report.static_eligibility_decision.outcome is PromotionOutcome.REJECT
     assert report.static_eligibility_decision.production_version is None
@@ -247,6 +248,37 @@ def test_training_compares_candidates_gates_and_publishes_native_artifacts(
 def test_training_requires_every_configured_gold_partition(tmp_path: Path) -> None:
     with pytest.raises(TrainingDataError, match="gold feature partition"):
         train_models(_settings(tmp_path))
+
+
+def test_training_reports_missingness_cohort_errors(
+    nullable_trained_report: TrainingRunReport,
+) -> None:
+    report = nullable_trained_report
+    assert report.train_missing_passenger_rows == 67
+    assert report.holdout_missing_passenger_rows == 34
+    known, unknown = report.passenger_count_cohorts
+    assert known.passenger_count_known
+    assert not unknown.passenger_count_known
+    assert known.rows == 66
+    assert unknown.rows == 34
+    assert unknown.static_mae_seconds < unknown.baseline_mae_seconds
+    assert known.static_mae_seconds < known.baseline_mae_seconds
+    assert "Passenger-count missingness" in Path(report.model_card_path).read_text()
+
+
+@pytest.mark.parametrize("version", ["gold-features-v1", "gold-features-v2"])
+def test_training_rejects_invalid_known_passengers(tmp_path: Path, version: str) -> None:
+    settings = _settings(tmp_path)
+    for month, rows in (("2024-01", 200), ("2024-02", 100)):
+        _write_gold(settings.ingestion.data_root, month, rows, feature_model_version=version)
+    path = settings.ingestion.data_root / "gold/yellow/month=2024-01/training_features.parquet"
+    table = pq.ParquetFile(path).read()
+    table = table.set_column(
+        table.schema.get_field_index("passenger_count"), "passenger_count", pa.array([-1] * 200)
+    )
+    pq.write_table(table, path)
+    with pytest.raises(TrainingDataError, match="known passenger counts"):
+        train_models(settings)
 
 
 def test_static_selection_cannot_reuse_streaming_decision_or_cache(tmp_path: Path) -> None:

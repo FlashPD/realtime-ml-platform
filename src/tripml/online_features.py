@@ -42,11 +42,22 @@ class FeatureLookup:
     features: OnlineFeatures | None = None
 
 
-def feature_key(role: Literal["pickup", "dropoff"], zone_id: int, window: WindowKind) -> str:
-    return f"tripml:features:v1:{role}:zone:{zone_id}:{window.value}"
+def feature_key(
+    role: Literal["pickup", "dropoff"],
+    zone_id: int,
+    window: WindowKind,
+    *,
+    feature_model_version: str = "gold-features-v1",
+) -> str:
+    if feature_model_version not in {"gold-features-v1", "gold-features-v2"}:
+        raise ValueError("unsupported online feature model version")
+    version = feature_model_version.removeprefix("gold-features-")
+    return f"tripml:features:{version}:{role}:zone:{zone_id}:{window.value}"
 
 
 class RedisFeatureStore:
+    feature_model_version: str = "gold-features-v1"
+
     def __init__(self, client: Redis, settings: ServingSettings) -> None:
         self.client = client
         self.settings = settings
@@ -78,7 +89,12 @@ class RedisFeatureStore:
             # A single command sees one Redis state and avoids three network round trips.
             payloads = cast(
                 list[bytes | None],
-                self.client.mget([feature_key(*identity) for identity in identities]),
+                self.client.mget(
+                    [
+                        feature_key(*identity, feature_model_version=self.feature_model_version)
+                        for identity in identities
+                    ]
+                ),
             )
         except RedisError:
             return FeatureLookup(LookupOutcome.UNAVAILABLE)
@@ -94,6 +110,8 @@ class RedisFeatureStore:
         except (ValidationError, ValueError, TypeError):
             return FeatureLookup(LookupOutcome.INVALID)
         for snapshot, identity in zip(snapshots, identities, strict=True):
+            if snapshot.feature_model_version != self.feature_model_version:
+                return FeatureLookup(LookupOutcome.INVALID)
             if (snapshot.zone_role, snapshot.zone_id, snapshot.window_kind) != identity:
                 return FeatureLookup(LookupOutcome.INVALID)
             age = (request.pickup_time - snapshot.window_end).total_seconds()

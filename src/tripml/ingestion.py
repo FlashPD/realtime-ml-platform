@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from types import TracebackType
-from typing import Protocol, Self, cast
+from typing import Literal, Protocol, Self, cast
 from urllib.request import Request, urlopen
 
 import pyarrow as pa
@@ -21,7 +21,7 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from tripml.contracts import AwareDateTime, QualityCheckResult
+from tripml.contracts import AwareDateTime, PassengerSchemaVersion, QualityCheckResult
 
 TAXI_KIND = "yellow"
 CONTRACT_VERSION = "1.0"
@@ -150,6 +150,8 @@ class PartitionStatus(StrEnum):
 
 
 class PartitionQualityReport(FrozenModel):
+    missing_passenger_rows: int | None = Field(default=None, ge=0)
+    valid_missing_passenger_rows: int | None = Field(default=None, ge=0)
     month: str
     status: PartitionStatus
     total_rows: int = Field(ge=0)
@@ -163,10 +165,22 @@ class PartitionQualityReport(FrozenModel):
     silver_path: str | None
     quarantine_path: str | None
     evaluated_at: AwareDateTime
-    contract_version: str = CONTRACT_VERSION
+    contract_version: PassengerSchemaVersion = "1.0"
 
     @model_validator(mode="after")
     def counts_are_consistent(self) -> Self:
+        if (self.missing_passenger_rows is None) != (self.valid_missing_passenger_rows is None):
+            raise ValueError("missing passenger statistics must be supplied together")
+        if self.missing_passenger_rows is not None:
+            if self.missing_passenger_rows > self.total_rows:
+                raise ValueError("missing passenger rows exceed total rows")
+            if self.valid_missing_passenger_rows is None or not (
+                self.valid_missing_passenger_rows
+                <= min(self.missing_passenger_rows, self.valid_rows)
+            ):
+                raise ValueError("valid missing passenger rows disagree with row counts")
+        if self.contract_version == "1.0" and self.valid_missing_passenger_rows:
+            raise ValueError("contract 1.0 cannot accept unknown passenger counts")
         if self.valid_rows + self.invalid_rows != self.total_rows:
             raise ValueError("valid_rows and invalid_rows must add up to total_rows")
         expected_rate = self.invalid_rows / self.total_rows if self.total_rows else 0.0
@@ -353,7 +367,11 @@ def _and_all(conditions: Iterator[pa.Array], row_count: int) -> pa.Array:
 
 
 def _batch_rule_masks(
-    batch: pa.RecordBatch, month: YearMonth, known_zone_ids: pa.Array
+    batch: pa.RecordBatch,
+    month: YearMonth,
+    known_zone_ids: pa.Array,
+    *,
+    allow_unknown_passengers: bool = False,
 ) -> dict[str, pa.Array]:
     columns = {name: batch.column(batch.schema.get_field_index(name)) for name in SOURCE_COLUMNS}
     pickup = pc.cast(columns["tpep_pickup_datetime"], pa.timestamp("us"))
@@ -364,7 +382,14 @@ def _batch_rule_masks(
     dropoff_zone = pc.cast(columns["DOLocationID"], pa.int64())
     fare = pc.cast(columns["fare_amount"], pa.float64())
 
-    required = _and_all((pc.is_valid(value) for value in columns.values()), batch.num_rows)
+    required = _and_all(
+        (
+            pc.is_valid(value)
+            for name, value in columns.items()
+            if name != "passenger_count" or not allow_unknown_passengers
+        ),
+        batch.num_rows,
+    )
     duration_microseconds = pc.subtract(pc.cast(dropoff, pa.int64()), pc.cast(pickup, pa.int64()))
     duration_range = pc.and_(
         pc.greater_equal(duration_microseconds, 60 * 1_000_000),
@@ -410,6 +435,7 @@ def _normalized_table(
     valid_mask: pa.Array,
     month: YearMonth,
     row_offset: int,
+    contract_version: PassengerSchemaVersion = "1.0",
 ) -> pa.Table:
     source = pa.Table.from_batches([batch]).filter(valid_mask)
     selected_indices = pc.indices_nonzero(valid_mask).to_pylist()
@@ -437,7 +463,7 @@ def _normalized_table(
             "fare_amount": pc.cast(source["fare_amount"], pa.float64()),
             "actual_duration_seconds": duration_seconds,
             "source_row_number": source_rows,
-            "contract_version": pa.array([CONTRACT_VERSION] * len(source_rows)),
+            "contract_version": pa.array([contract_version] * len(source_rows)),
         },
         schema=SILVER_SCHEMA,
     )
@@ -465,10 +491,12 @@ def _quality_results(
     total_rows: int,
     threshold: float,
     invalid_rows: int,
+    contract_version: PassengerSchemaVersion = "1.0",
 ) -> tuple[QualityCheckResult, ...]:
     all_violations = {"any_contract_violation": invalid_rows, **violations}
     return tuple(
         QualityCheckResult(
+            contract_version=contract_version,
             partition=str(month),
             rule=rule,
             violations=count,
@@ -487,6 +515,7 @@ def validate_partition(
     *,
     max_violation_rate: float,
     batch_size: int,
+    passenger_count_policy: Literal["required", "allow_unknown"] = "required",
     known_zone_ids: frozenset[int] = frozenset(range(1, 266)),
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> PartitionQualityReport:
@@ -494,6 +523,11 @@ def validate_partition(
 
     if not 0 <= max_violation_rate <= 1:
         raise ValueError("max_violation_rate must be between zero and one")
+    if passenger_count_policy not in {"required", "allow_unknown"}:
+        raise ValueError("unsupported passenger_count_policy")
+    contract_version: PassengerSchemaVersion = (
+        "1.1" if passenger_count_policy == "allow_unknown" else "1.0"
+    )
     parquet = pq.ParquetFile(source)
     missing = sorted(set(SOURCE_COLUMNS) - set(parquet.schema_arrow.names))
     if missing:
@@ -505,15 +539,26 @@ def validate_partition(
     invalid_writer: pq.ParquetWriter | None = None
     total_rows = 0
     valid_rows = 0
+    missing_passenger_rows = valid_missing_passenger_rows = 0
     violation_counts: dict[str, int] = {}
     zone_array = pa.array(sorted(known_zone_ids), type=pa.int64())
     scan_completed = False
     try:
         for batch in parquet.iter_batches(batch_size=batch_size, columns=list(SOURCE_COLUMNS)):
-            rule_masks = _batch_rule_masks(batch, month, zone_array)
+            rule_masks = _batch_rule_masks(
+                batch,
+                month,
+                zone_array,
+                allow_unknown_passengers=passenger_count_policy == "allow_unknown",
+            )
             valid_mask = _and_all(iter(rule_masks.values()), batch.num_rows)
             invalid_mask = pc.invert(valid_mask)
             batch_valid_rows = int(pc.sum(pc.cast(valid_mask, pa.int64())).as_py() or 0)
+            missing = pc.is_null(batch.column(batch.schema.get_field_index("passenger_count")))
+            missing_passenger_rows += int(pc.sum(pc.cast(missing, pa.int64())).as_py() or 0)
+            valid_missing_passenger_rows += int(
+                pc.sum(pc.cast(pc.and_(missing, valid_mask), pa.int64())).as_py() or 0
+            )
             for rule, passed in rule_masks.items():
                 passed_count = int(pc.sum(pc.cast(passed, pa.int64())).as_py() or 0)
                 violation_counts[rule] = (
@@ -521,7 +566,9 @@ def validate_partition(
                 )
 
             if batch_valid_rows:
-                silver_table = _normalized_table(batch, valid_mask, month, total_rows)
+                silver_table = _normalized_table(
+                    batch, valid_mask, month, total_rows, contract_version
+                )
                 if silver_writer is None:
                     silver_writer = pq.ParquetWriter(silver_temporary, SILVER_SCHEMA)
                 silver_writer.write_table(silver_table)
@@ -564,6 +611,9 @@ def validate_partition(
                 paths.invalid_rows_file.unlink(missing_ok=True)
 
         report = PartitionQualityReport(
+            contract_version=contract_version,
+            missing_passenger_rows=missing_passenger_rows,
+            valid_missing_passenger_rows=valid_missing_passenger_rows,
             month=str(month),
             status=PartitionStatus.ACCEPTED if accepted else PartitionStatus.QUARANTINED,
             total_rows=total_rows,
@@ -572,7 +622,12 @@ def validate_partition(
             violation_rate=violation_rate,
             max_violation_rate=max_violation_rate,
             checks=_quality_results(
-                month, violation_counts, total_rows, max_violation_rate, invalid_rows
+                month,
+                violation_counts,
+                total_rows,
+                max_violation_rate,
+                invalid_rows,
+                contract_version,
             ),
             source_path=str(source),
             source_sha256=_sha256(source),

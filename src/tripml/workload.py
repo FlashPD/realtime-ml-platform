@@ -65,7 +65,7 @@ def _observe(profile: Profile, request: ETARequest) -> None:
         str(request.pickup_zone_id),
         str(request.dropoff_zone_id),
         bucket,
-        str(request.passenger_count),
+        "unknown" if request.passenger_count is None else str(request.passenger_count),
     )
     for dimension, value in zip(DIMENSIONS, values, strict=True):
         profile[dimension][value] += 1
@@ -108,7 +108,11 @@ def build_workload(
         for batch in source.iter_batches(batch_size=settings.ingestion.batch_size, columns=COLUMNS):
             for row in batch.to_pylist():
                 scanned += 1
-                if row.pop("contract_version") != "1.0":
+                contract_version = row.pop("contract_version")
+                if (
+                    contract_version not in {"1.0", "1.1"}
+                    or contract_version != quality.contract_version
+                ):
                     raise ValueError("unsupported silver contract version")
                 pickup = row.pop("pickup_datetime")
                 if not isinstance(pickup, datetime):
@@ -119,7 +123,7 @@ def build_workload(
                 if aware is None:
                     excluded += 1
                     continue
-                request = ETARequest(pickup_time=aware, **row)
+                request = ETARequest(schema_version=contract_version, pickup_time=aware, **row)
                 _observe(population, request)
                 eligible += 1
                 if len(sample) < rows:

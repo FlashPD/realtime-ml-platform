@@ -51,8 +51,9 @@ training report: successful execution does not mean that promotion gates passed.
 Gold manifests record source checksums and resource-configuration fingerprints. Training writes a
 content-addressed bundle under `artifacts/training/<run-id>/` with native model files, baseline,
 manifest, evaluation JSON and model card. Evidence version 2 added all three models' bucket
-diagnostics and a separate static eligibility decision; current version 3 also records the selected
-promotion role. `--no-track` leaves the registry untouched.
+diagnostics and a separate static eligibility decision; version 3 records the selected promotion
+role and current version 4 adds passenger-count cohort diagnostics. This configuration retains the
+strict passenger policy. `--no-track` leaves the registry untouched.
 Rebuild the serving image from this code before using a current bundle in a later deployment;
 older images reject the expanded manifest fields.
 

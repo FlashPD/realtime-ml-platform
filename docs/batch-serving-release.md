@@ -12,12 +12,12 @@ continues to describe later streaming and closed-loop milestones. No release tag
 
 | Deliverable | Current evidence | Release acceptance |
 |---|---|---|
-| Data and leakage controls | Ingestion, lineage, gold feature tests; January real-data workload | Record source checksums, accepted/rejected counts, and all training/holdout months |
-| Real-data model comparison | [January / February pilot](validation/real-data-pilot.md) completed; March and April quarantined by the unchanged data gate | Resolve missing passenger-count contract policy before the planned January–March / April release evaluation; retain pilot evidence separately |
+| Data and leakage controls | Ingestion, lineage, gold feature tests; [full release gold and April workload](validation/unknown-passenger-policy.md), with versioned missingness policy and preserved strict evidence | Retain these source checksums, row counts and contract versions in the final model/release evidence |
+| Real-data model comparison | [January / February pilot](validation/real-data-pilot.md) retained; explicit [unknown-passenger policy](adr/0018-unknown-passenger-counts.md) supports the planned split in an isolated data root | Run January–March / April evaluation under the versioned policy, inspect known/unknown cohorts, and retain pilot evidence separately |
 | Model selection for batch serving | Explicit static gates, role-isolated registry, incumbent/holdout guards, and [real-data pilot registration/API evidence](validation/static-model-promotion.md) ([ADR-0017](adr/0017-explicit-static-model-promotion.md)) | Use these semantics with the final release evaluation and deploy its approved artifact |
 | Kubernetes API | Synthetic registry-to-HTTP and broker acknowledgment tests | Deploy the selected real-data artifact; record image identity, bundle checksum, registry provenance and startup/readiness evidence |
 | Serving visibility | Opt-in Prometheus and provisioned Grafana dashboard | Capture dashboard and scrape evidence during the release workload; document missing-data and fallback interpretation |
-| Representative load | Real-data request builder and synthetic kind/HPA measurements | Use held-out April requests and the real-data model; export raw samples, workload provenance, throughput, P50/P95/P99, errors, dropped arrivals and serving mode |
+| Representative load | Prepared contract-1.1 April request sample and synthetic kind/HPA measurements | Use the April sample with the evaluated version-2 real-data model; export raw samples, provenance, throughput, P50/P95/P99, errors, dropped arrivals and serving mode |
 | Failure behavior | Redis/broker resilience harness | Demonstrate static behavior and broker failure/recovery for the release configuration; retain failure evidence and limitations |
 | Reproduction and packaging | CLI, Helm, CI and ADRs | Run documented commands from a clean checkout, pin image digests, link measured claims, review limitations, then tag the release |
 
@@ -29,8 +29,9 @@ synthetic evidence to obtain a passing headline.
 ## Delivery sequence
 
 1. Provision serving monitoring and write its operating runbook (delivered).
-2. Build real-data gold partitions and publish a measured comparison (pilot delivered with bounded
-   feature builds; intended release split blocked by March/April source completeness).
+2. Build real-data gold partitions and publish a measured comparison (pilot delivered; the explicit
+   unknown-passenger contract now admits March/April in the isolated release profile). Run the
+   planned full evaluation using the [preparation runbook](runbooks/nullable-passenger-release.md).
 3. Explicit static-model promotion and serving are implemented; deploy the final release model
    using the [static promotion runbook](runbooks/static-model-promotion.md). Keep static and
    streaming results separately attributable.

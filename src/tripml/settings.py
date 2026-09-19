@@ -103,6 +103,7 @@ class ServingSettings(ImmutableModel):
 
 
 class IngestionSettings(ImmutableModel):
+    passenger_count_policy: Literal["required", "allow_unknown"] = "required"
     data_root: Path = Path("data")
     source_base_url: str = "https://d37ci6vzurychx.cloudfront.net/trip-data"
     max_partition_violation_rate: float = Field(default=0.10, ge=0, le=1)

@@ -31,6 +31,7 @@ serving:
   redis_max_connections: 32
 
 ingestion:
+  passenger_count_policy: required
   data_root: data
   source_base_url: https://d37ci6vzurychx.cloudfront.net/trip-data
   max_partition_violation_rate: 0.10

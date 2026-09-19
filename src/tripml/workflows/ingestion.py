@@ -102,6 +102,7 @@ def run_ingestion(
             paths,
             max_violation_rate=ingestion.max_partition_violation_rate,
             batch_size=ingestion.batch_size,
+            passenger_count_policy=ingestion.passenger_count_policy,
         )
     except Exception as error:
         if lineage is not None and lineage_run_id is not None:
