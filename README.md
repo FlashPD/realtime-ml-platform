@@ -1,72 +1,58 @@
 # Real-Time ML Platform
 
-A local-first, production-shaped machine learning platform built on New York City taxi trip
-data. It is designed to demonstrate the data-intensive side of senior AI engineering:
-point-in-time-correct features, event-time stream processing, training/serving parity, guarded
-model promotion, low-latency serving, closed-loop monitoring, and reproducible operations on
-Kubernetes.
+A reproducible ML system for NYC taxi-trip duration: public Parquet data becomes validated,
+versioned features, evaluated LightGBM models, and predictions served through FastAPI and
+Kubernetes. The engineering focus is data correctness, guarded model promotion, explicit failure
+behavior, and measurements that can be traced to their inputs.
 
-> **Status:** Versioned unknown-passenger support and release data preparation. The package,
-> contracts, CI gates,
-> bounded-memory bronze-to-silver ingestion, durable PostgreSQL lineage, Airflow 3 orchestration,
-> leakage-safe dbt-duckdb gold features, deterministic model comparison, and explicit promotion
-> gates are implemented. MLflow tracking, conditional registration, and production-alias protection
-> are also complete. The prediction API selects the verified streaming model when Redis snapshots
-> pass event-time checks, with explicit static fallback, health endpoints, and Prometheus metrics.
-> Configured prediction publication now waits for Redpanda acknowledgment before HTTP success.
-> Serving now has a non-root image, Helm deployment, health probes, topic provisioning, and an
-> optional CPU HPA. A constant-arrival HTTP benchmark now exports request-level evidence and enforces
-> latency, error, overload, and serving-mode checks. An isolated resilience suite exercises Redis and
-> broker failures, recovery, and consumer readback. An in-cluster synthetic load test measures Service
-> latency, traffic across replicas, CPU scale-up, and the default scale-down stabilization window.
-> Real-data request workloads can now be sampled reproducibly from accepted silver partitions,
-> with distribution comparisons and checksummed provenance preserved by the benchmark runner.
-> A [real-data January/February pilot](docs/validation/real-data-pilot.md) trained and evaluated on
-> all accepted rows: static LightGBM reduced holdout MAE by 33.21% to 172.85 seconds and passed
-> unchanged eligibility gates. March and April were quarantined under the original strict contract;
-> that run did not publish a model. A subsequent [static promotion validation](docs/validation/static-model-promotion.md)
-> registered the byte-identical static model in an isolated local pilot registry and verified
-> `static_primary` API behavior. Role isolation, incumbent checks and Redis bypass are implemented;
-> see the [static promotion runbook](docs/runbooks/static-model-promotion.md).
-> An opt-in unknown-passenger contract now preserves nulls across ingestion, features and serving,
-> with cohort diagnostics and separate version-2 online feature keys. March and April pass the
-> unchanged 10% partition gate under this explicit policy in an isolated data root. The planned
-> January–March / April model evaluation is still pending; see the
-> [release data evidence](docs/validation/unknown-passenger-policy.md) and
-> [preparation runbook](docs/runbooks/nullable-passenger-release.md).
-> Representative real-data load measurements, the stream producer, and the ground-truth joiner remain
-> pending.
+The active target is the **[batch-serving portfolio release](docs/batch-serving-release.md)**.
+The batch pipeline, MLflow registry integration, Kubernetes serving, acknowledged prediction
+publication, and Prometheus/Grafana monitoring are implemented. The full January–March / April
+evaluation passed, and the approved static model is registered. Its Kubernetes deployment and
+operational measurements remain release gates.
 
-## Intended architecture
+## Evidence so far
+
+| Evidence | Measured result | Scope |
+|---|---|---|
+| [Full release evaluation](docs/validation/batch-release-model.md) | Static MAE **187.18 s**, **25.78%** below baseline; all fixed gates passed | **9.32M** January–March training trips / **3.42M** April holdout trips; registry version 1 and known/unknown-count API validation |
+| [Local HTTP preflight](docs/validation/batch-release-model.md#local-http-preflight) | **10,000** successes at **100 requests/s**, **5.88 ms P95**, zero errors or dropped arrivals | April sample through the approved model on host loopback; broker disabled; cluster load remains pending |
+| [Original model pilot](docs/validation/real-data-pilot.md) | Static MAE **172.85 s**, **33.21%** below the median baseline | All accepted January training / February holdout trips under the original strict contract |
+| [Guarded static promotion](docs/validation/static-model-promotion.md) | The same native model was registered and served through the API | Isolated local registry and in-process HTTP smoke |
+| [Release data preparation](docs/validation/unknown-passenger-policy.md) | **9.32M** January–March training rows and **3.42M** April holdout rows | Explicit nullable passenger contract; checksummed gold and a 10,000-request April sample |
+
+The pilot and release scores use different populations and holdout months. TLC distance
+is observed completed-trip distance; these experiments do not validate a pre-trip route estimate.
+Synthetic load and resilience tests establish harness behavior, not real-data production capacity.
+
+## Implemented batch-serving path
 
 ```mermaid
 flowchart LR
-    TLC[NYC TLC Parquet] --> B[Bronze / Silver / Gold]
-    B --> TRAIN[Training + promotion gate]
-    TRAIN --> REG[(MLflow registry)]
-    REG --> API[Prediction API]
-    B --> REPLAY[Event-time replayer]
-    REPLAY --> BROKER[(Redpanda)]
-    BROKER --> STREAM[Stream processor]
-    STREAM --> REDIS[(Redis features)]
-    REDIS --> API
-    API --> PRED[Predictions]
-    BROKER --> JOIN[Ground-truth joiner]
-    PRED --> JOIN
-    JOIN --> MONITOR[Error + drift monitoring]
-    MONITOR --> TRAIN
+    TLC[NYC TLC Parquet] --> SILVER[Validated silver + lineage]
+    SILVER --> GOLD[Point-in-time gold features]
+    GOLD --> EVAL[Baseline + static + offline rolling models]
+    EVAL --> GATE[Accuracy, calibration and inference gates]
+    GATE --> REG[(MLflow registry)]
+    REG --> API[FastAPI on Kubernetes]
+    API --> BROKER[(Acknowledged prediction publication)]
+    API --> PROM[Prometheus]
+    PROM --> GRAF[Grafana]
 ```
 
-The complete design, delivery phases, service objectives, and acceptance criteria are in the
-[architecture plan](arch_plan/realtime-ml-platform-plan.md).
+Serving supports both an explicitly selected static model and a streaming model with validated
+Redis features and static fallback. The batch release selects the static path. A live feature
+producer, event replay, offline/online parity, prediction/completion joins, and drift-triggered
+retraining remain on the later streaming roadmap. See the
+[full architecture plan](arch_plan/realtime-ml-platform-plan.md) for that intended system.
 
 ## Delivery status and roadmap
 
 The active target is the **[batch-serving portfolio release](docs/batch-serving-release.md)**.
 Its checklist separates release requirements from the later streaming roadmap. Local serving
 visibility is now available through an opt-in Prometheus/Grafana profile; see the
-[monitoring runbook](docs/runbooks/serving-monitoring.md). Final release evaluation, deployment of
-the approved static model, representative load evidence, and reproduction remain release gates.
+[monitoring runbook](docs/runbooks/serving-monitoring.md). Deployment of the approved real-data static
+model, representative cluster load and failure evidence, and reproduction remain release gates.
 
 The batch path is complete through a guarded MLflow production alias. "Complete" below means
 implemented, documented, and covered by the repository quality gates; it does not mean that a final
@@ -97,9 +83,21 @@ showcase run has measured the production-shaped objectives yet.
 | Real-data model pilot | Full January training / February evaluation, three-model comparison, distance-bucket diagnostics, separate static eligibility, resource measurements, checksummed evidence and application smoke test; retained under the original strict data contract |
 | Explicit static promotion | Selected-candidate gates and model cards, separate registry roles, incumbent/holdout checks, verified static loading, Redis bypass, and [real-data local registry-to-API evidence](docs/validation/static-model-promotion.md) |
 | Unknown passenger counts | Explicit contract 1.1 admission policy, preserved nulls, gold/Redis version isolation, native missing-value inference, known/unknown cohort errors, and [full release gold plus April workload evidence](docs/validation/unknown-passenger-policy.md) |
+| Full batch-model evaluation | All January–March / April rows, unchanged passing static gates, missingness and distance diagnostics, guarded registry version 1, native/API checks, and [exported evidence and model card](docs/validation/batch-release-model.md) |
 | Engineering documentation | Data card, batch-release checklist, monitoring and release runbooks, and eighteen ADRs covering the delivered architecture and validation decisions |
 
 ### Remaining
+
+For the first portfolio release, the remaining work is deliberately narrower than the full
+architecture:
+
+1. Deploy the approved `98ef1dd9ef4447f7` artifact to kind and run the April workload with broker
+   acknowledgment and monitoring; retain client latency, errors, dropped arrivals and model/image identities.
+2. Capture broker failure and recovery with the release model and explain static serving behavior.
+3. Reproduce the walkthrough from a clean checkout, review every headline claim, and tag the release.
+
+The larger roadmap below includes work deferred beyond that batch release, particularly the live
+feature producer, parity checks, closed-loop evaluation and request-rate autoscaling.
 
 Estimates are focused engineer-days for one engineer and include implementation, tests, local
 integration, and documentation. They are ranges rather than deadlines.

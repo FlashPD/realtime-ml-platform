@@ -6,9 +6,10 @@ preserving unknown passenger counts as null. Their remaining violation rates are
 models and evidence remain intact.
 
 All January–April gold partitions were built with `gold-features-v2`, providing **9,316,058 training
-rows** for January–March and **3,419,441 April holdout rows**. No real-data version-2 model has been
-trained, registered or deployed yet; this validates data preparation and the contract migration,
-not release accuracy. The original pilot scores apply to its original population.
+rows** for January–March and **3,419,441 April holdout rows**. At this capture, no real-data version-2
+model had been trained, registered or deployed; this evidence validates data preparation and the
+contract migration. The subsequent [full model evaluation](batch-release-model.md) records release
+accuracy and registry/API validation. The original pilot scores apply to its original population.
 
 See the [machine-readable snapshot](unknown-passenger-policy.json),
 [policy decision](../adr/0018-unknown-passenger-counts.md), and
@@ -84,7 +85,7 @@ and request fixture. Repository paths are normalized. Original quality reports a
 were read without mutation. Raw logs, resources and the capture helper remain under
 `artifacts/releases/passenger-policy-20260918/`, ignored by Git.
 
-Next, run the predeclared January–March / April model comparison and inspect both missingness
-cohorts before publication. Missingness can reflect different reporting behavior; acceptance is
+The subsequent [January–March / April evaluation](batch-release-model.md) reports both missingness
+cohorts and its publication decision. Missingness can reflect different reporting behavior; acceptance is
 not evidence that the new population is unbiased or equally predictable. TLC's completed-trip
 distance limitation and the need for live feature-parity validation remain unchanged.

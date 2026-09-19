@@ -13,11 +13,11 @@ continues to describe later streaming and closed-loop milestones. No release tag
 | Deliverable | Current evidence | Release acceptance |
 |---|---|---|
 | Data and leakage controls | Ingestion, lineage, gold feature tests; [full release gold and April workload](validation/unknown-passenger-policy.md), with versioned missingness policy and preserved strict evidence | Retain these source checksums, row counts and contract versions in the final model/release evidence |
-| Real-data model comparison | [January / February pilot](validation/real-data-pilot.md) retained; explicit [unknown-passenger policy](adr/0018-unknown-passenger-counts.md) supports the planned split in an isolated data root | Run January–March / April evaluation under the versioned policy, inspect known/unknown cohorts, and retain pilot evidence separately |
-| Model selection for batch serving | Explicit static gates, role-isolated registry, incumbent/holdout guards, and [real-data pilot registration/API evidence](validation/static-model-promotion.md) ([ADR-0017](adr/0017-explicit-static-model-promotion.md)) | Use these semantics with the final release evaluation and deploy its approved artifact |
-| Kubernetes API | Synthetic registry-to-HTTP and broker acknowledgment tests | Deploy the selected real-data artifact; record image identity, bundle checksum, registry provenance and startup/readiness evidence |
+| Real-data model comparison | [Full January–March / April evaluation](validation/batch-release-model.md): static MAE 187.18 s, 25.78% below baseline; all fixed gates passed; cohorts and original pilot retained | Completed for bundle `98ef1dd9ef4447f7`; future tuning requires a fresh final holdout |
+| Model selection for batch serving | Full release static model registered as version 1 in isolated `tripml-trip-duration-static-v2`; native/API parity, role isolation and idempotent retry verified ([ADR-0017](adr/0017-explicit-static-model-promotion.md)) | Deploy this exact approved artifact |
+| Kubernetes API | Rebuilt serving image passed synthetic registry-to-HTTP and broker acknowledgment smoke | Deploy the selected real-data artifact; record image identity, bundle checksum, registry provenance and startup/readiness evidence |
 | Serving visibility | Opt-in Prometheus and provisioned Grafana dashboard | Capture dashboard and scrape evidence during the release workload; document missing-data and fallback interpretation |
-| Representative load | Prepared contract-1.1 April request sample and synthetic kind/HPA measurements | Use the April sample with the evaluated version-2 real-data model; export raw samples, provenance, throughput, P50/P95/P99, errors, dropped arrivals and serving mode |
+| Representative load | [Local real-model preflight](validation/batch-release-model.md#local-http-preflight): 10,000 April requests at 100/s, P95 5.88 ms, no errors/drops; broker disabled. Synthetic kind/HPA evidence remains separate | Run the April sample on kind with acknowledgment enabled; export raw samples, provenance, throughput, P50/P95/P99, errors, dropped arrivals and serving mode |
 | Failure behavior | Redis/broker resilience harness | Demonstrate static behavior and broker failure/recovery for the release configuration; retain failure evidence and limitations |
 | Reproduction and packaging | CLI, Helm, CI and ADRs | Run documented commands from a clean checkout, pin image digests, link measured claims, review limitations, then tag the release |
 
@@ -29,10 +29,10 @@ synthetic evidence to obtain a passing headline.
 ## Delivery sequence
 
 1. Provision serving monitoring and write its operating runbook (delivered).
-2. Build real-data gold partitions and publish a measured comparison (pilot delivered; the explicit
-   unknown-passenger contract now admits March/April in the isolated release profile). Run the
-   planned full evaluation using the [preparation runbook](runbooks/nullable-passenger-release.md).
-3. Explicit static-model promotion and serving are implemented; deploy the final release model
+2. Build real-data gold partitions and publish a measured comparison (delivered: full evaluation,
+   cohort diagnostics, fixed gates and approved static registration). Reproduce using the
+   [preparation and validation runbook](runbooks/nullable-passenger-release.md).
+3. Deploy the final release model
    using the [static promotion runbook](runbooks/static-model-promotion.md). Keep static and
    streaming results separately attributable.
 4. Run held-out traffic through kind with dashboards, acknowledgment enabled, and exported
