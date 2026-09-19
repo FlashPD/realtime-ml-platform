@@ -1,0 +1,219 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["credentialsSecret", "global", "postgresql", "redis", "minio", "redpanda", "airflow", "mlflow", "serving", "monitoring"],
+  "properties": {
+    "monitoring": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "prometheus",
+        "grafana"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "prometheus": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "image",
+            "persistence",
+            "resources"
+          ],
+          "properties": {
+            "image": {
+              "$ref": "#/$defs/image"
+            },
+            "persistence": {
+              "$ref": "#/$defs/persistence"
+            },
+            "resources": {
+              "$ref": "#/properties/serving/properties/resources"
+            }
+          }
+        },
+        "grafana": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "image",
+            "adminSecret",
+            "resources"
+          ],
+          "properties": {
+            "image": {
+              "$ref": "#/$defs/image"
+            },
+            "adminSecret": {
+              "type": "string",
+              "minLength": 1
+            },
+            "resources": {
+              "$ref": "#/properties/serving/properties/resources"
+            }
+          }
+        }
+      }
+    },
+    "serving": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "image", "replicas", "trackingUri", "registeredModelName", "productionAlias", "redisHost", "bootstrapServers", "predictionTopic", "topicPartitions", "topicReplicationFactor", "resources", "autoscaling"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "image": {"$ref": "#/$defs/image"},
+        "replicas": {"type": "integer", "minimum": 1},
+        "trackingUri": {"type": "string"},
+        "registeredModelName": {"type": "string", "minLength": 1},
+        "productionAlias": {"type": "string", "minLength": 1},
+        "redisHost": {"type": "string"},
+        "bootstrapServers": {"type": "string"},
+        "predictionTopic": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 249,
+          "pattern": "^[A-Za-z0-9_.-]+$",
+          "not": {"enum": [".", ".."]}
+        },
+        "topicPartitions": {"type": "integer", "minimum": 1},
+        "topicReplicationFactor": {"type": "integer", "minimum": 1},
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["requests", "limits"],
+          "properties": {
+            "requests": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["cpu", "memory"],
+              "properties": {
+                "cpu": {"type": "string", "pattern": "^[1-9][0-9]*m?$"},
+                "memory": {"type": "string", "pattern": "^[1-9][0-9]*(Mi|Gi)$"}
+              }
+            },
+            "limits": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["cpu", "memory"],
+              "properties": {
+                "cpu": {"type": "string", "pattern": "^[1-9][0-9]*m?$"},
+                "memory": {"type": "string", "pattern": "^[1-9][0-9]*(Mi|Gi)$"}
+              }
+            }
+          }
+        },
+        "autoscaling": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "minReplicas", "maxReplicas", "targetCPUUtilizationPercentage"],
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "minReplicas": {"type": "integer", "minimum": 1},
+            "maxReplicas": {"type": "integer", "minimum": 1},
+            "targetCPUUtilizationPercentage": {"type": "integer", "minimum": 1, "maximum": 100}
+          }
+        }
+      }
+    },
+    "credentialsSecret": {"type": "string", "minLength": 1},
+    "global": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["imagePullPolicy", "storageClass"],
+      "properties": {
+        "imagePullPolicy": {"enum": ["Always", "IfNotPresent", "Never"]},
+        "storageClass": {"type": "string"}
+      }
+    },
+    "postgresql": {"$ref": "#/$defs/serviceWithDatabase"},
+    "redis": {"$ref": "#/$defs/service"},
+    "minio": {"$ref": "#/$defs/service"},
+    "redpanda": {"$ref": "#/$defs/service"},
+    "airflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "image", "metadataDatabase", "persistence", "resources"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "image": {"$ref": "#/$defs/image"},
+        "metadataDatabase": {"type": "string", "minLength": 1},
+        "persistence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["dataSize", "logsSize"],
+          "properties": {
+            "dataSize": {"type": "string", "pattern": "^[1-9][0-9]*(Mi|Gi)$"},
+            "logsSize": {"type": "string", "pattern": "^[1-9][0-9]*(Mi|Gi)$"}
+          }
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["apiServer", "scheduler", "dagProcessor"],
+          "properties": {
+            "apiServer": {"type": "object"},
+            "scheduler": {"type": "object"},
+            "dagProcessor": {"type": "object"}
+          }
+        }
+      }
+    },
+    "mlflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "image", "backendDatabase", "artifactBucket", "resources"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "image": {"$ref": "#/$defs/image"},
+        "backendDatabase": {"type": "string", "minLength": 1},
+        "artifactBucket": {"type": "string", "minLength": 3},
+        "resources": {"type": "object"}
+      }
+    }
+  },
+  "$defs": {
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "image", "persistence", "resources"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "image": {"$ref": "#/$defs/image"},
+        "persistence": {"$ref": "#/$defs/persistence"},
+        "resources": {"type": "object"}
+      }
+    },
+    "serviceWithDatabase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "image", "database", "username", "persistence", "resources"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "image": {"$ref": "#/$defs/image"},
+        "database": {"type": "string", "minLength": 1},
+        "username": {"type": "string", "minLength": 1},
+        "persistence": {"$ref": "#/$defs/persistence"},
+        "resources": {"type": "object"}
+      }
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "tag"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "tag": {"type": "string", "minLength": 1}
+      }
+    },
+    "persistence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["size"],
+      "properties": {"size": {"type": "string", "pattern": "^[1-9][0-9]*(Mi|Gi)$"}}
+    }
+  }
+}

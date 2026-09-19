@@ -1,0 +1,35 @@
+# Planned release split with an explicit nullable-passenger contract and isolated artifacts.
+training:
+  train_months: ["2024-01", "2024-02", "2024-03"]
+  holdout_month: "2024-04"
+  artifact_root: artifacts/training/passenger-v1_1
+  model:
+    objective: regression_l1
+    num_leaves: 63
+    learning_rate: 0.05
+    n_estimators: 800
+    seed: 42
+
+ingestion:
+  data_root: data/passenger-v1_1
+  passenger_count_policy: allow_unknown
+  max_partition_violation_rate: 0.10
+
+features:
+  duckdb_memory_limit: 2GB
+  duckdb_max_temp_directory_size: 8GB
+  duckdb_threads: 2
+
+promotion_gate:
+  min_mae_improvement_vs_baseline_pct: 15.0
+  min_mae_improvement_vs_production_pct: 1.0
+  max_bucket_calibration_error_pct: 10.0
+  max_inference_p95_ms: 5.0
+
+tracking:
+  candidate_role: static
+  tracking_uri: sqlite:///artifacts/mlflow/batch-release-v2/mlflow.db
+  local_artifact_root: artifacts/mlflow/batch-release-v2/runs
+  experiment_name: tripml-batch-release-v2
+  registered_model_name: tripml-trip-duration-static-v2
+  production_alias: production

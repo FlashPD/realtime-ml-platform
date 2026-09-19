@@ -1,0 +1,32 @@
+TripML local infrastructure is installed.
+
+Internal service endpoints:
+  PostgreSQL: {{ include "tripml.fullname" . }}-postgresql:5432
+  Redis:      {{ include "tripml.fullname" . }}-redis:6379
+  MinIO:      http://{{ include "tripml.fullname" . }}-minio:9000
+  Redpanda:   {{ include "tripml.fullname" . }}-redpanda:9092
+  Schema API: http://{{ include "tripml.fullname" . }}-redpanda:8081
+{{- if .Values.airflow.enabled }}
+  Airflow:    http://{{ include "tripml.fullname" . }}-airflow:8080
+
+Run `make airflow-ui` to forward the Airflow UI to http://localhost:8080 and
+`make airflow-password` to retrieve the generated local admin password.
+{{- end }}
+{{- if .Values.mlflow.enabled }}
+  MLflow:     http://{{ include "tripml.fullname" . }}-mlflow:5000
+
+Run `make mlflow-ui` to forward the MLflow UI to http://localhost:5000.
+{{- end }}
+
+Credentials are stored in the pre-created {{ .Values.credentialsSecret }} Secret.
+{{- if .Values.monitoring.enabled }}
+
+Serving monitoring:
+  Prometheus: http://{{ include "tripml.fullname" . }}-prometheus:9090
+  Grafana:    http://{{ include "tripml.fullname" . }}-grafana:3000
+
+Forward Grafana locally:
+  kubectl -n {{ .Release.Namespace }} port-forward service/{{ include "tripml.fullname" . }}-grafana 3000:3000
+Log in as admin using admin-password from the {{ .Values.monitoring.grafana.adminSecret }} Secret.
+See docs/runbooks/serving-monitoring.md for interpretation and retention boundaries.
+{{- end }}

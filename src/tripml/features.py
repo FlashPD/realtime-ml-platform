@@ -1,0 +1,250 @@
+"""Point-in-time-correct offline feature materialization with dbt-duckdb."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import tempfile
+from collections.abc import Callable
+from datetime import UTC, datetime
+from importlib.resources import files
+from pathlib import Path
+from typing import Any
+
+import pyarrow.compute as pc
+import pyarrow.parquet as pq
+import yaml
+from pydantic import BaseModel, ConfigDict, Field
+
+from tripml.contracts import AwareDateTime
+from tripml.ingestion import TAXI_KIND, YearMonth
+from tripml.settings import FeatureSettings, PlatformSettings
+
+MODEL_VERSION = "gold-features-v1"
+FEATURE_VERSIONS = {"1.0": MODEL_VERSION, "1.1": "gold-features-v2"}
+HASH_CHUNK_SIZE = 1024 * 1024
+
+
+class FeatureBuildError(RuntimeError):
+    """The feature build could not produce a tested gold artifact."""
+
+
+class FeatureSourceError(FeatureBuildError):
+    """Required accepted silver input is missing."""
+
+
+class FrozenModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class FeatureInput(FrozenModel):
+    contract_version: str = "1.0"
+    path: str
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    row_count: int = Field(ge=0)
+
+
+class FeatureBuildReport(FrozenModel):
+    month: str
+    model_version: str
+    output_path: str
+    manifest_path: str
+    row_count: int = Field(ge=0)
+    output_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    output_size_bytes: int = Field(gt=8)
+    input_rows: int = Field(ge=0)
+    inputs: tuple[FeatureInput, ...]
+    short_window_seconds: int = Field(gt=0)
+    long_window_seconds: int = Field(gt=0)
+    config_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    built_at: AwareDateTime
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        while chunk := stream.read(HASH_CHUNK_SIZE):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _previous_month(month: YearMonth) -> YearMonth:
+    if month.month == 1:
+        return YearMonth(month.year - 1, 12)
+    return YearMonth(month.year, month.month - 1)
+
+
+def _silver_path(data_root: Path, month: YearMonth) -> Path:
+    return data_root / "silver" / TAXI_KIND / f"month={month}" / "trips.parquet"
+
+
+def _gold_paths(data_root: Path, month: YearMonth) -> tuple[Path, Path]:
+    directory = data_root / "gold" / TAXI_KIND / f"month={month}"
+    return directory / "training_features.parquet", directory / "manifest.json"
+
+
+def _feature_inputs(data_root: Path, month: YearMonth) -> tuple[FeatureInput, ...]:
+    target = _silver_path(data_root, month)
+    if not target.is_file():
+        raise FeatureSourceError(f"accepted silver partition does not exist: {target}")
+
+    candidates = (_silver_path(data_root, _previous_month(month)), target)
+    inputs = []
+    for path in candidates:
+        if not path.is_file():
+            continue
+        parquet = pq.ParquetFile(path)
+        versions: set[str | None] = set()
+        if "contract_version" not in parquet.schema_arrow.names:
+            raise FeatureSourceError("silver is missing its contract version")
+        for batch in parquet.iter_batches(columns=["contract_version"]):
+            versions.update(pc.unique(batch.column(0)).to_pylist())
+        if len(versions) != 1 or not versions <= FEATURE_VERSIONS.keys():
+            raise FeatureSourceError("silver requires one supported contract version")
+        inputs.append(
+            FeatureInput(
+                contract_version=str(next(iter(versions))),
+                path=str(path.resolve()),
+                sha256=_sha256(path),
+                row_count=parquet.metadata.num_rows,
+            )
+        )
+    if len({item.contract_version for item in inputs}) != 1:
+        raise FeatureSourceError("target and lookback silver must use the same contract version")
+    return tuple(inputs)
+
+
+def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent, delete=False
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            json.dump(payload, temporary, indent=2, sort_keys=True)
+            temporary.write("\n")
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        temporary_path.replace(path)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+
+def _write_dbt_profile(directory: Path, database_path: Path, settings: FeatureSettings) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    profile = {
+        "tripml": {
+            "target": "local",
+            "outputs": {
+                "local": {
+                    "type": "duckdb",
+                    "path": str(database_path),
+                    "schema": "tripml",
+                    "threads": settings.duckdb_threads,
+                    "settings": {
+                        "threads": settings.duckdb_threads,
+                        "memory_limit": settings.duckdb_memory_limit,
+                        "max_temp_directory_size": settings.duckdb_max_temp_directory_size,
+                        "preserve_insertion_order": False,
+                    },
+                }
+            },
+        }
+    }
+    (directory / "profiles.yml").write_text(
+        yaml.safe_dump(profile, sort_keys=False), encoding="utf-8"
+    )
+
+
+def _invoke_dbt(arguments: list[str]) -> None:
+    try:
+        from dbt.cli.main import dbtRunner
+    except ImportError as error:
+        raise FeatureBuildError(
+            "dbt-duckdb is required; install the 'transformation' project extra"
+        ) from error
+
+    result = dbtRunner().invoke(arguments)
+    if not result.success:
+        detail = str(result.exception) if result.exception is not None else "dbt build failed"
+        raise FeatureBuildError(detail)
+
+
+def build_gold_features(
+    month_value: str,
+    *,
+    settings: PlatformSettings,
+    now: Callable[[], datetime] = lambda: datetime.now(UTC),
+) -> FeatureBuildReport:
+    """Build and atomically publish one tested monthly gold feature partition."""
+
+    streaming = settings.streaming
+    if streaming.short_window_seconds != 900 or streaming.long_window_seconds != 3600:
+        raise FeatureBuildError("gold-features-v1 requires 900/3600-second windows")
+    month = YearMonth.parse(month_value)
+    inputs = _feature_inputs(settings.ingestion.data_root, month)
+    model_version = FEATURE_VERSIONS[inputs[-1].contract_version]
+    output_path, manifest_path = _gold_paths(settings.ingestion.data_root, month)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    project_dir = Path(str(files("tripml").joinpath("dbt")))
+
+    with tempfile.TemporaryDirectory(prefix="tripml-dbt-") as temporary_directory:
+        temporary_root = Path(temporary_directory)
+        temporary_output = output_path.parent / f".{output_path.name}.{os.getpid()}.tmp"
+        variables = {
+            "silver_paths": [item.path for item in inputs],
+            "gold_path": str(temporary_output.resolve()),
+            "month_start": month.start.isoformat(sep=" "),
+            "month_end": month.end.isoformat(sep=" "),
+            "short_window_seconds": streaming.short_window_seconds,
+            "long_window_seconds": streaming.long_window_seconds,
+            "model_version": model_version,
+        }
+        profiles_dir = temporary_root / "profiles"
+        _write_dbt_profile(profiles_dir, temporary_root / "tripml.duckdb", settings.features)
+        try:
+            _invoke_dbt(
+                [
+                    "--quiet",
+                    "build",
+                    "--project-dir",
+                    str(project_dir),
+                    "--profiles-dir",
+                    str(profiles_dir),
+                    "--target-path",
+                    str(temporary_root / "target"),
+                    "--log-path",
+                    str(temporary_root / "logs"),
+                    "--vars",
+                    json.dumps(variables, separators=(",", ":")),
+                    "--select",
+                    "+training_features",
+                ]
+            )
+            if not temporary_output.is_file():
+                raise FeatureBuildError("dbt succeeded without producing the gold Parquet file")
+            row_count = pq.ParquetFile(temporary_output).metadata.num_rows
+            temporary_output.replace(output_path)
+        finally:
+            temporary_output.unlink(missing_ok=True)
+
+    report = FeatureBuildReport(
+        month=str(month),
+        model_version=model_version,
+        output_path=str(output_path),
+        manifest_path=str(manifest_path),
+        row_count=row_count,
+        output_sha256=_sha256(output_path),
+        output_size_bytes=output_path.stat().st_size,
+        input_rows=sum(item.row_count for item in inputs),
+        inputs=inputs,
+        short_window_seconds=streaming.short_window_seconds,
+        long_window_seconds=streaming.long_window_seconds,
+        config_fingerprint=settings.fingerprint,
+        built_at=now(),
+    )
+    _write_json_atomic(manifest_path, report.model_dump(mode="json"))
+    return report

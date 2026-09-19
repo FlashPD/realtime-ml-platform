@@ -1,0 +1,106 @@
+{{- if .Values.redpanda.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tripml.fullname" . }}-redpanda
+  labels:
+    {{- include "tripml.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redpanda
+spec:
+  clusterIP: None
+  selector:
+    {{- include "tripml.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: redpanda
+  ports:
+    - {name: kafka, port: 9092, targetPort: kafka}
+    - {name: schema, port: 8081, targetPort: schema}
+    - {name: admin, port: 9644, targetPort: admin}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "tripml.fullname" . }}-redpanda
+  labels:
+    {{- include "tripml.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redpanda
+spec:
+  serviceName: {{ include "tripml.fullname" . }}-redpanda
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "tripml.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: redpanda
+  template:
+    metadata:
+      labels:
+        {{- include "tripml.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: redpanda
+    spec:
+      securityContext:
+        fsGroup: 101
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: redpanda
+          image: "{{ .Values.redpanda.image.repository }}:{{ .Values.redpanda.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          args:
+            - redpanda
+            - start
+            - --node-id
+            - "0"
+            - --smp
+            - "1"
+            - --memory
+            - 1G
+            - --reserve-memory
+            - 0M
+            - --overprovisioned
+            - --check=false
+            - --mode
+            - dev-container
+            - --kafka-addr
+            - internal://0.0.0.0:9092
+            - --advertise-kafka-addr
+            - internal://{{ include "tripml.fullname" . }}-redpanda:9092
+            - --schema-registry-addr
+            - internal://0.0.0.0:8081
+            - --rpc-addr
+            - 0.0.0.0:33145
+            - --advertise-rpc-addr
+            - {{ include "tripml.fullname" . }}-redpanda:33145
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            runAsNonRoot: true
+            runAsUser: 101
+          ports:
+            - {name: kafka, containerPort: 9092}
+            - {name: schema, containerPort: 8081}
+            - {name: admin, containerPort: 9644}
+            - {name: rpc, containerPort: 33145}
+          startupProbe:
+            httpGet: {path: /v1/status/ready, port: admin}
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet: {path: /v1/status/ready, port: admin}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /v1/status/ready, port: admin}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.redpanda.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/redpanda/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: {{ .Values.global.storageClass | quote }}
+        resources:
+          requests:
+            storage: {{ .Values.redpanda.persistence.size }}
+{{- end }}

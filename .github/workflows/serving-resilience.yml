@@ -1,0 +1,30 @@
+name: Serving resilience evidence
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  serving-resilience:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install development dependencies
+        run: python -m pip install -e '.[dev]'
+      - name: Exercise load, dependency failures, recovery, and broker readback
+        run: make benchmark-resilience PYTHON=python OUTPUT=artifacts/serving-resilience
+      - name: Upload evidence even when objectives fail
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: serving-resilience-${{ github.run_id }}
+          path: artifacts/serving-resilience/
+          retention-days: 14
+          if-no-files-found: warn

@@ -144,7 +144,7 @@ PROVISIONING     (kind cluster, Helm release, readiness)
 
 ### 3.7 Kubernetes packaging
 
-- One umbrella Helm chart with subcharts for third-party components and templates for first-party services. Values profiles: `local` (kind, single replicas, reduced memory), `ci` (no Grafana or Airflow web, shortest replay), and `showcase` (full stack).
+- One Helm application chart with lightweight templates for the local third-party dependencies and first-party services. Values profiles: `local` (kind, single replicas, reduced memory), `ci` (no Grafana or Airflow web, shortest replay), and `showcase` (full stack). The local dependency packaging and its explicitly non-production boundary are recorded in ADR-0001; a production deployment would use managed services or maintained operators.
 - Every first-party service has liveness and readiness probes, resource requests and limits, a PodDisruptionBudget where relevant, and a ServiceMonitor for Prometheus.
 - The serving API has a HorizontalPodAutoscaler on CPU and a custom request-rate metric, exercised during the showcase load test.
 - Secrets are Kubernetes Secrets generated at install time; no credential is committed.

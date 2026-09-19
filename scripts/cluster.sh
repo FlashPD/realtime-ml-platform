@@ -1,0 +1,223 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+tool_directory="${TRIPML_TOOL_DIR:-${repository_root}/.tools/bin}"
+cluster_name="${TRIPML_CLUSTER_NAME:-tripml}"
+namespace="${TRIPML_NAMESPACE:-tripml}"
+release_name="${TRIPML_RELEASE_NAME:-tripml}"
+credentials_secret="tripml-infra-credentials"
+airflow_image="tripml-airflow:0.1.0"
+mlflow_image="tripml-mlflow:0.1.0"
+serving_image=""
+postgres_username="tripml"
+airflow_database="${TRIPML_AIRFLOW_DATABASE:-airflow}"
+mlflow_database="${TRIPML_MLFLOW_DATABASE:-mlflow}"
+
+require_command() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    echo "Required command not found: $1" >&2
+    exit 1
+  fi
+}
+
+read_secret_value() {
+  local key="$1"
+  local encoded
+  encoded="$(kubectl --context "kind-${cluster_name}" --namespace "${namespace}" \
+    get secret "${credentials_secret}" \
+    --output "go-template={{with index .data \"${key}\"}}{{.}}{{end}}" 2>/dev/null || true)"
+  if [[ -n "${encoded}" ]]; then
+    printf '%s' "${encoded}" | openssl base64 -d -A
+  fi
+}
+
+create_credentials() {
+  local postgres_password redis_password minio_root_user minio_root_password
+  local airflow_admin_password airflow_fernet_key airflow_jwt_secret
+  local airflow_database_url lineage_database_url mlflow_database_url database_host
+
+  postgres_password="$(read_secret_value postgres-password)"
+  redis_password="$(read_secret_value redis-password)"
+  minio_root_user="$(read_secret_value minio-root-user)"
+  minio_root_password="$(read_secret_value minio-root-password)"
+  airflow_admin_password="$(read_secret_value airflow-admin-password)"
+  airflow_fernet_key="$(read_secret_value airflow-fernet-key)"
+  airflow_jwt_secret="$(read_secret_value airflow-jwt-secret)"
+
+  postgres_password="${postgres_password:-$(openssl rand -hex 24)}"
+  redis_password="${redis_password:-$(openssl rand -hex 24)}"
+  minio_root_user="${minio_root_user:-tripml-$(openssl rand -hex 6)}"
+  minio_root_password="${minio_root_password:-$(openssl rand -hex 24)}"
+  airflow_admin_password="${airflow_admin_password:-$(openssl rand -hex 24)}"
+  airflow_fernet_key="${airflow_fernet_key:-$(openssl rand -base64 32 | tr '+/' '-_')}"
+  airflow_jwt_secret="${airflow_jwt_secret:-$(openssl rand -hex 32)}"
+
+  database_host="${release_name}-tripml-postgresql"
+  airflow_database_url="postgresql+psycopg://${postgres_username}:${postgres_password}@${database_host}:5432/${airflow_database}"
+  lineage_database_url="postgresql://${postgres_username}:${postgres_password}@${database_host}:5432/tripml"
+  mlflow_database_url="postgresql+psycopg://${postgres_username}:${postgres_password}@${database_host}:5432/${mlflow_database}"
+
+  kubectl --context "kind-${cluster_name}" --namespace "${namespace}" create secret generic \
+    "${credentials_secret}" \
+    --from-literal=postgres-password="${postgres_password}" \
+    --from-literal=redis-password="${redis_password}" \
+    --from-literal=minio-root-user="${minio_root_user}" \
+    --from-literal=minio-root-password="${minio_root_password}" \
+    --from-literal=airflow-admin-password="${airflow_admin_password}" \
+    --from-literal=airflow-admin-passwords="{\"admin\":\"${airflow_admin_password}\"}" \
+    --from-literal=airflow-fernet-key="${airflow_fernet_key}" \
+    --from-literal=airflow-jwt-secret="${airflow_jwt_secret}" \
+    --from-literal=airflow-database-url="${airflow_database_url}" \
+    --from-literal=lineage-database-url="${lineage_database_url}" \
+    --from-literal=mlflow-database-url="${mlflow_database_url}" \
+    --dry-run=client --output yaml | \
+    kubectl --context "kind-${cluster_name}" --namespace "${namespace}" apply -f -
+}
+
+build_airflow_image() {
+  docker build \
+    --file "${repository_root}/docker/airflow/Dockerfile" \
+    --tag "${airflow_image}" \
+    "${repository_root}"
+  "${tool_directory}/kind" load docker-image "${airflow_image}" --name "${cluster_name}"
+}
+
+build_mlflow_image() {
+  docker build \
+    --file "${repository_root}/docker/mlflow/Dockerfile" \
+    --tag "${mlflow_image}" \
+    "${repository_root}"
+  "${tool_directory}/kind" load docker-image "${mlflow_image}" --name "${cluster_name}"
+}
+
+build_serving_image() {
+  local image_id
+  docker build --file "${repository_root}/docker/serving/Dockerfile" \
+    --tag tripml-serving:build "${repository_root}"
+  image_id="$(docker image inspect tripml-serving:build --format '{{.Id}}')"
+  serving_image="tripml-serving:${image_id#sha256:}"
+  docker tag tripml-serving:build "${serving_image}"
+  "${tool_directory}/kind" load docker-image "${serving_image}" --name "${cluster_name}"
+}
+
+deploy_serving() {
+  require_command docker
+  require_command kubectl
+  "${repository_root}/scripts/bootstrap-tools.sh" all
+  local autoscaling="${TRIPML_SERVING_AUTOSCALING:-false}"
+  if [[ "${autoscaling}" != true && "${autoscaling}" != false ]]; then
+    echo "TRIPML_SERVING_AUTOSCALING must be true or false" >&2
+    exit 2
+  fi
+  "${tool_directory}/helm" status "${release_name}" --kube-context "kind-${cluster_name}" \
+    --namespace "${namespace}" >/dev/null
+  if [[ "${autoscaling}" == true ]]; then
+    kubectl --context "kind-${cluster_name}" wait apiservice/v1beta1.metrics.k8s.io \
+      --for=condition=Available --timeout=30s
+  fi
+  build_serving_image
+  "${tool_directory}/helm" upgrade "${release_name}" "${repository_root}/deploy/helm/tripml" \
+    --kube-context "kind-${cluster_name}" --namespace "${namespace}" \
+    --reset-then-reuse-values \
+    --set serving.enabled=true \
+    --set-string serving.image.tag="${serving_image#*:}" \
+    --set serving.autoscaling.enabled="${autoscaling}" \
+    --wait --timeout 10m --rollback-on-failure
+  "${tool_directory}/helm" test "${release_name}" --kube-context "kind-${cluster_name}" \
+    --namespace "${namespace}" --filter "name=${release_name}-tripml-test-serving" --logs --timeout 3m
+}
+
+forward_serving() {
+  require_command kubectl
+  kubectl --context "kind-${cluster_name}" --namespace "${namespace}" \
+    port-forward "service/${release_name}-tripml-serving" 8000:8000
+}
+
+create_cluster() {
+  require_command docker
+  require_command kubectl
+  require_command openssl
+  docker info >/dev/null
+  "${repository_root}/scripts/bootstrap-tools.sh" all
+
+  if ! "${tool_directory}/kind" get clusters | grep -qx "${cluster_name}"; then
+    "${tool_directory}/kind" create cluster \
+      --name "${cluster_name}" \
+      --config "${repository_root}/infra/kind/cluster.yaml" \
+      --wait 120s
+  fi
+  build_airflow_image
+  build_mlflow_image
+
+  kubectl --context "kind-${cluster_name}" create namespace "${namespace}" \
+    --dry-run=client --output yaml | kubectl --context "kind-${cluster_name}" apply -f -
+  create_credentials
+
+  "${tool_directory}/helm" upgrade --install "${release_name}" \
+    "${repository_root}/deploy/helm/tripml" \
+    --kube-context "kind-${cluster_name}" \
+    --namespace "${namespace}" \
+    --values "${repository_root}/deploy/helm/tripml/values-local.yaml" \
+    --reset-then-reuse-values \
+    --set-string airflow.metadataDatabase="${airflow_database}" \
+    --set-string mlflow.backendDatabase="${mlflow_database}" \
+    --wait \
+    --timeout 10m
+
+  run_tests
+  kubectl --context "kind-${cluster_name}" --namespace "${namespace}" get pods
+}
+
+run_tests() {
+  "${repository_root}/scripts/bootstrap-tools.sh" helm
+  "${tool_directory}/helm" test "${release_name}" \
+    --kube-context "kind-${cluster_name}" \
+    --namespace "${namespace}" \
+    --logs \
+    --timeout 3m
+  kubectl --context "kind-${cluster_name}" --namespace "${namespace}" \
+    delete pods --selector tripml.io/test=true --ignore-not-found --wait=false
+}
+
+show_status() {
+  require_command kubectl
+  kubectl --context "kind-${cluster_name}" --namespace "${namespace}" get pods,services,persistentvolumeclaims
+}
+
+show_airflow_password() {
+  require_command kubectl
+  require_command openssl
+  read_secret_value airflow-admin-password
+  printf '\n'
+}
+
+forward_airflow() {
+  require_command kubectl
+  kubectl --context "kind-${cluster_name}" --namespace "${namespace}" \
+    port-forward "service/${release_name}-tripml-airflow" 8080:8080
+}
+
+forward_mlflow() {
+  require_command kubectl
+  kubectl --context "kind-${cluster_name}" --namespace "${namespace}" \
+    port-forward "service/${release_name}-tripml-mlflow" 5000:5000
+}
+
+delete_cluster() {
+  "${repository_root}/scripts/bootstrap-tools.sh" kind
+  "${tool_directory}/kind" delete cluster --name "${cluster_name}"
+}
+
+case "${1:-}" in
+  create) create_cluster ;;
+  test) run_tests ;;
+  status) show_status ;;
+  airflow-password) show_airflow_password ;;
+  airflow-ui) forward_airflow ;;
+  mlflow-ui) forward_mlflow ;;
+  serving-deploy) deploy_serving ;;
+  serving-ui) forward_serving ;;
+  delete) delete_cluster ;;
+  *) echo "Usage: $0 {create|test|status|airflow-password|airflow-ui|mlflow-ui|serving-deploy|serving-ui|delete}" >&2; exit 2 ;;
+esac

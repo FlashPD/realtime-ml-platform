@@ -1,0 +1,21 @@
+.DS_Store
+.env
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.coverage
+.coverage.*
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+coverage.xml
+htmlcov/
+build/
+dist/
+
+# Local platform state and downloaded data
+.tripml/
+.tools/
+data/
+artifacts/

@@ -1,0 +1,54 @@
+{{- if .Values.serving.enabled }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "tripml.fullname" . }}-test-serving
+  labels:
+    {{- include "tripml.labels" . | nindent 4 }}
+    tripml.io/test: "true"
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    seccompProfile: {type: RuntimeDefault}
+  containers:
+    - name: serving-smoke
+      image: "{{ .Values.serving.image.repository }}:{{ .Values.serving.image.tag }}"
+      imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+      command: ["python", "-c"]
+      args:
+        - |
+          import json
+          from urllib.request import Request, urlopen
+          from tripml.contracts import Prediction
+
+          base = "http://{{ include "tripml.fullname" . }}-serving:8000"
+          for path in ("/healthz", "/readyz", "/metrics"):
+              with urlopen(base + path, timeout=10) as response:
+                  assert response.status == 200
+          payload = json.dumps({
+              "trip_id": "helm-serving-smoke", "pickup_zone_id": 161, "dropoff_zone_id": 236,
+              "pickup_time": "2024-04-15T12:00:00-04:00", "trip_distance_miles": 3.2,
+              "passenger_count": 2,
+          }).encode()
+          request = Request(base + "/v1/eta", data=payload, headers={"Content-Type": "application/json"})
+          with urlopen(request, timeout=10) as response:
+              assert response.headers["X-TripML-Publication"] == "acknowledged"
+              prediction = Prediction.model_validate_json(response.read())
+              print(json.dumps({"prediction_id": str(prediction.prediction_id),
+                                "model_version": prediction.model_version,
+                                "feature_fallback": prediction.feature_fallback}))
+      resources:
+        requests: {cpu: 50m, memory: 128Mi}
+        limits: {cpu: 500m, memory: 256Mi}
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities: {drop: ["ALL"]}
+        readOnlyRootFilesystem: true
+{{- end }}

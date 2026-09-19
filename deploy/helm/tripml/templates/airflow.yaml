@@ -1,0 +1,260 @@
+{{- if .Values.airflow.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tripml.fullname" . }}-airflow
+  labels:
+    {{- include "tripml.labels" . | nindent 4 }}
+    app.kubernetes.io/component: airflow
+spec:
+  selector:
+    {{- include "tripml.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: airflow
+  ports:
+    - name: api
+      port: 8080
+      targetPort: api
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "tripml.fullname" . }}-airflow-data
+  labels:
+    {{- include "tripml.labels" . | nindent 4 }}
+    app.kubernetes.io/component: airflow
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: {{ .Values.global.storageClass | quote }}
+  resources:
+    requests:
+      storage: {{ .Values.airflow.persistence.dataSize }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "tripml.fullname" . }}-airflow-logs
+  labels:
+    {{- include "tripml.labels" . | nindent 4 }}
+    app.kubernetes.io/component: airflow
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: {{ .Values.global.storageClass | quote }}
+  resources:
+    requests:
+      storage: {{ .Values.airflow.persistence.logsSize }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tripml.fullname" . }}-airflow
+  labels:
+    {{- include "tripml.labels" . | nindent 4 }}
+    app.kubernetes.io/component: airflow
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "tripml.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: airflow
+  template:
+    metadata:
+      labels:
+        {{- include "tripml.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: airflow
+    spec:
+      securityContext:
+        fsGroup: 0
+        fsGroupChangePolicy: OnRootMismatch
+      initContainers:
+        - name: create-metadata-database
+          image: "{{ .Values.postgresql.image.repository }}:{{ .Values.postgresql.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              until pg_isready \
+                --host={{ include "tripml.fullname" . }}-postgresql \
+                --username={{ .Values.postgresql.username | quote }}; do
+                sleep 2
+              done
+              exists="$(psql \
+                --host={{ include "tripml.fullname" . }}-postgresql \
+                --username={{ .Values.postgresql.username | quote }} \
+                --dbname=postgres \
+                --tuples-only --no-align \
+                --command="SELECT 1 FROM pg_database WHERE datname = '{{ .Values.airflow.metadataDatabase }}'")"
+              if [ "${exists}" != "1" ]; then
+                createdb \
+                  --host={{ include "tripml.fullname" . }}-postgresql \
+                  --username={{ .Values.postgresql.username | quote }} \
+                  {{ .Values.airflow.metadataDatabase | quote }}
+              fi
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.credentialsSecret }}
+                  key: postgres-password
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            runAsNonRoot: true
+            runAsUser: 999
+        - name: stage-auth-configuration
+          image: "{{ .Values.airflow.image.repository }}:{{ .Values.airflow.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command: ["/bin/bash", "-ec"]
+          args:
+            - |
+              cp /opt/airflow/auth-secret/passwords.json \
+                /opt/airflow/config/simple-auth-passwords.json
+              chmod 0600 /opt/airflow/config/simple-auth-passwords.json
+          securityContext:
+            {{- include "tripml.airflowContainerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: auth-secret
+              mountPath: /opt/airflow/auth-secret
+              readOnly: true
+            - name: config
+              mountPath: /opt/airflow/config
+        - name: migrate-metadata-database
+          image: "{{ .Values.airflow.image.repository }}:{{ .Values.airflow.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          args: ["db", "migrate"]
+          env:
+            {{- include "tripml.airflowEnvironment" . | nindent 12 }}
+          securityContext:
+            {{- include "tripml.airflowContainerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /opt/airflow/config
+            - name: logs
+              mountPath: /opt/airflow/logs
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: api-server
+          image: "{{ .Values.airflow.image.repository }}:{{ .Values.airflow.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          args: ["api-server"]
+          env:
+            {{- include "tripml.airflowEnvironment" . | nindent 12 }}
+          ports:
+            - name: api
+              containerPort: 8080
+          startupProbe:
+            httpGet: {path: /api/v2/monitor/health, port: api}
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet: {path: /api/v2/monitor/health, port: api}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /api/v2/monitor/health, port: api}
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.airflow.resources.apiServer | nindent 12 }}
+          securityContext:
+            {{- include "tripml.airflowContainerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /opt/airflow/config
+            - name: logs
+              mountPath: /opt/airflow/logs
+            - name: tmp
+              mountPath: /tmp
+        - name: scheduler
+          image: "{{ .Values.airflow.image.repository }}:{{ .Values.airflow.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          args: ["scheduler"]
+          env:
+            {{- include "tripml.airflowEnvironment" . | nindent 12 }}
+          ports:
+            - name: scheduler
+              containerPort: 8974
+          startupProbe:
+            httpGet: {path: /health, port: scheduler}
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet: {path: /health, port: scheduler}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /health, port: scheduler}
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.airflow.resources.scheduler | nindent 12 }}
+          securityContext:
+            {{- include "tripml.airflowContainerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /opt/airflow/config
+            - name: data
+              mountPath: /opt/airflow/data
+            - name: logs
+              mountPath: /opt/airflow/logs
+            - name: tmp
+              mountPath: /tmp
+        - name: dag-processor
+          image: "{{ .Values.airflow.image.repository }}:{{ .Values.airflow.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          args: ["dag-processor"]
+          env:
+            {{- include "tripml.airflowEnvironment" . | nindent 12 }}
+          readinessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - >-
+                  import json, urllib.request;
+                  health = json.load(urllib.request.urlopen(
+                      "http://127.0.0.1:8080/api/v2/monitor/health", timeout=5));
+                  assert health["dag_processor"]["status"] == "healthy"
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 10
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - >-
+                  import json, urllib.request;
+                  health = json.load(urllib.request.urlopen(
+                      "http://127.0.0.1:8080/api/v2/monitor/health", timeout=5));
+                  assert health["dag_processor"]["status"] == "healthy"
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+          resources:
+            {{- toYaml .Values.airflow.resources.dagProcessor | nindent 12 }}
+          securityContext:
+            {{- include "tripml.airflowContainerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /opt/airflow/config
+            - name: logs
+              mountPath: /opt/airflow/logs
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: auth-secret
+          secret:
+            secretName: {{ .Values.credentialsSecret }}
+            items:
+              - key: airflow-admin-passwords
+                path: passwords.json
+        - name: config
+          emptyDir: {}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "tripml.fullname" . }}-airflow-data
+        - name: logs
+          persistentVolumeClaim:
+            claimName: {{ include "tripml.fullname" . }}-airflow-logs
+        - name: tmp
+          emptyDir: {}
+{{- end }}

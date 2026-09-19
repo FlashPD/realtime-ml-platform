@@ -1,0 +1,63 @@
+training:
+  train_months: ["2024-01", "2024-02", "2024-03"]
+  holdout_month: "2024-04"
+  target: trip_duration_seconds
+  artifact_root: artifacts/training
+  min_training_rows: 1000
+  min_holdout_rows: 100
+  model:
+    objective: regression_l1
+    num_leaves: 63
+    learning_rate: 0.05
+    n_estimators: 800
+    seed: 42
+
+promotion_gate:
+  min_mae_improvement_vs_baseline_pct: 15.0
+  min_mae_improvement_vs_production_pct: 1.0
+  max_bucket_calibration_error_pct: 10.0
+  max_inference_p95_ms: 5.0
+
+streaming:
+  short_window_seconds: 900
+  long_window_seconds: 3600
+  allowed_lateness_seconds: 300
+  feature_ttl_seconds: 7200
+
+serving:
+  feature_staleness_limit_seconds: 600
+  p95_latency_objective_ms: 50.0
+  redis_timeout_seconds: 0.01
+  redis_max_connections: 32
+
+ingestion:
+  passenger_count_policy: required
+  data_root: data
+  source_base_url: https://d37ci6vzurychx.cloudfront.net/trip-data
+  max_partition_violation_rate: 0.10
+  batch_size: 65536
+  download_timeout_seconds: 120.0
+
+lineage:
+  connect_timeout_seconds: 10
+  auto_migrate: true
+
+features:
+  duckdb_memory_limit: 2GB
+  duckdb_max_temp_directory_size: 8GB
+  duckdb_threads: 2
+
+tracking:
+  candidate_role: streaming
+  tracking_uri: sqlite:///artifacts/mlflow/mlflow.db
+  local_artifact_root: artifacts/mlflow/runs
+  experiment_name: tripml-training
+  registered_model_name: tripml-trip-duration
+  production_alias: production
+
+publication:
+  topic: predictions
+  delivery_timeout_ms: 1000
+  ack_timeout_seconds: 1.5
+  shutdown_timeout_seconds: 2
+  queue_max_messages: 10000

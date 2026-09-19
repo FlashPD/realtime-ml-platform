@@ -1,0 +1,194 @@
+{{- if .Values.mlflow.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tripml.fullname" . }}-mlflow
+  labels:
+    {{- include "tripml.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mlflow
+spec:
+  selector:
+    {{- include "tripml.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: mlflow
+  ports:
+    - name: http
+      port: 5000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tripml.fullname" . }}-mlflow
+  labels:
+    {{- include "tripml.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mlflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "tripml.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: mlflow
+  template:
+    metadata:
+      labels:
+        {{- include "tripml.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: mlflow
+    spec:
+      securityContext:
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+      initContainers:
+        - name: create-backend-database
+          image: "{{ .Values.postgresql.image.repository }}:{{ .Values.postgresql.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              until pg_isready \
+                --host={{ include "tripml.fullname" . }}-postgresql \
+                --username={{ .Values.postgresql.username | quote }}; do
+                sleep 2
+              done
+              exists="$(psql \
+                --host={{ include "tripml.fullname" . }}-postgresql \
+                --username={{ .Values.postgresql.username | quote }} \
+                --dbname=postgres \
+                --tuples-only --no-align \
+                --command="SELECT 1 FROM pg_database WHERE datname = '{{ .Values.mlflow.backendDatabase }}'")"
+              if [ "${exists}" != "1" ]; then
+                createdb \
+                  --host={{ include "tripml.fullname" . }}-postgresql \
+                  --username={{ .Values.postgresql.username | quote }} \
+                  {{ .Values.mlflow.backendDatabase | quote }}
+              fi
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.credentialsSecret }}
+                  key: postgres-password
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            runAsNonRoot: true
+            runAsUser: 999
+        - name: create-artifact-bucket
+          image: "{{ .Values.mlflow.image.repository }}:{{ .Values.mlflow.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command: ["python", "-c"]
+          args:
+            - |
+              import os
+              import time
+              import boto3
+              from botocore.config import Config
+              from botocore.exceptions import EndpointConnectionError
+
+              client = boto3.client(
+                  "s3",
+                  endpoint_url=os.environ["MLFLOW_S3_ENDPOINT_URL"],
+                  aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
+                  aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
+                  config=Config(s3={"addressing_style": "path"}),
+                  region_name="us-east-1",
+              )
+              for attempt in range(60):
+                  try:
+                      buckets = {item["Name"] for item in client.list_buckets()["Buckets"]}
+                      if os.environ["MLFLOW_ARTIFACT_BUCKET"] not in buckets:
+                          client.create_bucket(Bucket=os.environ["MLFLOW_ARTIFACT_BUCKET"])
+                      break
+                  except EndpointConnectionError:
+                      if attempt == 59:
+                          raise
+                      time.sleep(2)
+          env:
+            - name: MLFLOW_S3_ENDPOINT_URL
+              value: http://{{ include "tripml.fullname" . }}-minio:9000
+            - name: MLFLOW_ARTIFACT_BUCKET
+              value: {{ .Values.mlflow.artifactBucket | quote }}
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.credentialsSecret }}
+                  key: minio-root-user
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.credentialsSecret }}
+                  key: minio-root-password
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: mlflow
+          image: "{{ .Values.mlflow.image.repository }}:{{ .Values.mlflow.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command: ["/bin/sh", "-ec"]
+          args:
+            - >-
+              exec mlflow server
+              --host 0.0.0.0
+              --port 5000
+              --workers 1
+              --backend-store-uri "${MLFLOW_BACKEND_STORE_URI}"
+              --artifacts-destination "s3://{{ .Values.mlflow.artifactBucket }}"
+              --allowed-hosts "localhost,localhost:*,127.0.0.1,127.0.0.1:*,{{ include "tripml.fullname" . }}-mlflow,{{ include "tripml.fullname" . }}-mlflow:5000"
+          env:
+            - name: MLFLOW_BACKEND_STORE_URI
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.credentialsSecret }}
+                  key: mlflow-database-url
+            - name: MLFLOW_S3_ENDPOINT_URL
+              value: http://{{ include "tripml.fullname" . }}-minio:9000
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.credentialsSecret }}
+                  key: minio-root-user
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.credentialsSecret }}
+                  key: minio-root-password
+            - name: AWS_DEFAULT_REGION
+              value: us-east-1
+            - name: HOME
+              value: /tmp
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+          ports:
+            - name: http
+              containerPort: 5000
+          startupProbe:
+            httpGet: {path: /health, port: http}
+            failureThreshold: 60
+            periodSeconds: 5
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /health, port: http}
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.mlflow.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

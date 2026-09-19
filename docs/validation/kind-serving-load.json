@@ -1,0 +1,138 @@
+{
+  "raw_evidence_directory": "artifacts/benchmarks/kind-hpa-final",
+  "raw_summary_sha256": "1efb1efa5b07e9a8d62f7aa98f754b26796c4c70958b895031d9d699444e9b5d",
+  "recorded_date": "2026-09-17",
+  "scaling": {
+    "artifacts_sha256": {
+      "autoscaling.png": "e2fe1815c85ad1dfefe21966d6c42c157986634d8b6c28f66c65ee898de1b427",
+      "client/benchmark/README.md": "d48dfa4b75ea1b4b33c8f17d5b30accee38e3b817c227537288633b6903db9d2",
+      "client/benchmark/config.json": "46316429960e53677d9a6f1e67c9ba8b24f4e445675b99f5e28c7e4795773ef7",
+      "client/benchmark/requests.jsonl": "023f2b2b27368d8759db31bc83e83a83593b9b8e19ba099f00ebe7920bda2afa",
+      "client/benchmark/samples.jsonl": "e1165484ba01c55d3d3b82c6b81b060f4dffcba5b0374048454ca2a8bee1f278",
+      "client/benchmark/summary.json": "063b07c61fdb08d82801c13e2dad9f55c63a547ed9ecb7f8f6a0af45978d1fc4",
+      "client/benchmark/warmup.jsonl": "86642f81c19f193a01dcf017997bc58fe53d3bf9e325089bfee570fc94cab242",
+      "client/result.json": "ea70723ea2a1dcbf0493ae7576b42b860490e97c939170057a2ac4ad9d502a9d",
+      "cluster-version.json": "43592c0a6b85aa9c70f44dc303605a6ff5be801fe3ad812496447966671421aa",
+      "events.json": "159c219f4be7129396b50050aedbcbc50fb93f878a9f0ec82870a99479cae1e6",
+      "latest-resources.json": "d4858eec9d730784f7662b362ccb3bcb85bc03d4ccbe1a82c59125a0ef7dbf93",
+      "load-inputs.json": "7f684974a1e90f1d677424314ed2e47a75a545d9d323ed734a2be2f3cc6a4685",
+      "load-pod.json": "7aec456ffc59cd77e6a1c3e18256747e8aa7ac5032273c20ca528a4357336603",
+      "nodes.json": "86446d2aec94265e52815d225aca509687902e72828db4d5485f6adaa2cab5b1",
+      "observations.jsonl": "f2d0c0f5ee368fa17a7a5382ca960a284355b16be1ec71fbbeac386f5bcc04f2",
+      "plot-serving-load.py": "eeb4380d1f6041f297ab6b682c494cba94d2d35c90302b76fac74bcfe99c34db",
+      "registry-artifacts/1/032496f2728d43e5b154d39102317b16/artifacts/model/baseline.json": "1b9f51cacd3e8672b4a43ffe5c3cc9e5f0d2df7c10feb623be376da09839eee1",
+      "registry-artifacts/1/3c6842821964497ca4a974b8b07881ee/artifacts/model/static-model.txt": "d958c09e5b5f631a6ad5c0e45f64d21f04b5c110928325a1c045e6f54d9a5584",
+      "registry-artifacts/1/554ef684e6ee44548d88a9fd055d60b7/artifacts/evidence/evaluation.json": "4573b5c09617054c5491315d544008ae6a45110edfc5b5dc2135fcfd351b2f82",
+      "registry-artifacts/1/554ef684e6ee44548d88a9fd055d60b7/artifacts/evidence/manifest.json": "4573b5c09617054c5491315d544008ae6a45110edfc5b5dc2135fcfd351b2f82",
+      "registry-artifacts/1/554ef684e6ee44548d88a9fd055d60b7/artifacts/evidence/model-card.md": "def7874a644305823b49ec6a02a36c4a8db08ce1b77528c62b2cd421a0e7a07d",
+      "registry-artifacts/1/554ef684e6ee44548d88a9fd055d60b7/artifacts/model/streaming-model.txt": "f9ade14639d919b148f1b5aabfc257b1b1257ecf24501dc52295aa787910fd27",
+      "serving-check-tripml-serving-5d9597bf9-48tbt-metrics.txt": "00e471e8c5e440745434bdeb1a1296ca9d874722208c449276a4f1070564c900",
+      "serving-check-tripml-serving-5d9597bf9-gtj4l-metrics.txt": "a17f6c6ad925121224b37a8a49e1a123ff8d3fbe36a93233db31d02745fa2a28",
+      "serving-check-tripml-serving-5d9597bf9-r87mm-metrics.txt": "3f632feea0c11746db1156b17831863a2ee17b0261a4a1005a66a52e970afcad",
+      "values.yaml": "1dc98f0c163d21b7cbed0181a63c5b19492acb7111154074dc75f5e62f080664"
+    },
+    "checks": {
+      "additional_replicas_ready_under_load": true,
+      "cpu_metrics_available_under_load": true,
+      "hpa_requested_scale_up_under_load": true,
+      "in_cluster_prediction_objectives": true,
+      "multiple_pods_served_predictions": true,
+      "one_ready_replica_before_load": true,
+      "returned_to_one_replica_after_load": true
+    },
+    "load_result": {
+      "checks": {
+        "benchmark_objectives": true,
+        "fallback_under_one_percent": true
+      },
+      "passed": true
+    },
+    "passed": true,
+    "peak_ready_replicas": 3,
+    "pod_successful_predictions": {
+      "serving-check-tripml-serving-5d9597bf9-48tbt": 8270.0,
+      "serving-check-tripml-serving-5d9597bf9-gtj4l": 4815.0,
+      "serving-check-tripml-serving-5d9597bf9-r87mm": 4936.0
+    }
+  },
+  "workload": {
+    "all_attempted_latency_ms": {
+      "p50": 5.735302001994569,
+      "p95": 8.587629003159236,
+      "p99": 296.79769599897554
+    },
+    "artifacts_sha256": {
+      "config.json": "46316429960e53677d9a6f1e67c9ba8b24f4e445675b99f5e28c7e4795773ef7",
+      "requests.jsonl": "023f2b2b27368d8759db31bc83e83a83593b9b8e19ba099f00ebe7920bda2afa",
+      "samples.jsonl": "e1165484ba01c55d3d3b82c6b81b060f4dffcba5b0374048454ca2a8bee1f278",
+      "warmup.jsonl": "86642f81c19f193a01dcf017997bc58fe53d3bf9e325089bfee570fc94cab242"
+    },
+    "client_environment": {
+      "httpx": "0.28.1",
+      "platform": "Linux-7.0.12-linuxkit-aarch64-with-glibc2.36",
+      "python": "3.12.12"
+    },
+    "dispatch_lag_ms": {
+      "p50": 0.9776570004760288,
+      "p95": 2.0545049992506392,
+      "p99": 170.94228000496514
+    },
+    "elapsed_seconds": 180.0,
+    "error_rate": 0.0,
+    "fallback_rate_among_successes": 0.0,
+    "finished_at": "2026-09-17T21:37:30.545869+00:00",
+    "gates": {
+      "all_arrivals_accounted_for": true,
+      "error_rate": true,
+      "no_load_generator_overflow": true,
+      "p95_latency": true,
+      "successful_predictions": true
+    },
+    "http_latency_ms": {
+      "p50": 4.6026250056456774,
+      "p95": 7.498417005990632,
+      "p99": 68.12612500652904
+    },
+    "http_statuses": {
+      "200": 18000
+    },
+    "model_versions": {
+      "2ec455cb561eb798-streaming": 18000
+    },
+    "outcomes": {
+      "success": 18000
+    },
+    "passed": true,
+    "publication_modes": {
+      "acknowledged": 18000
+    },
+    "run_id": "20488a6be0a74e24827773af7918053e",
+    "scheduled_requests": 18000,
+    "schema_version": "1.0",
+    "settings": {
+      "base_url": "http://serving-check-tripml-serving:8000",
+      "concurrency": 256,
+      "expected_features": "any",
+      "expected_publication": "acknowledged",
+      "label": "synthetic-kind-hpa",
+      "max_error_rate": 0.01,
+      "no_keepalive": true,
+      "p95_objective_ms": 50,
+      "rate": 100.0,
+      "requests": 18000,
+      "timeout_seconds": 2,
+      "warmup": 20
+    },
+    "started_at": "2026-09-17T21:34:30.229713+00:00",
+    "successful_latency_ms": {
+      "p50": 5.735302001994569,
+      "p95": 8.587629003159236,
+      "p99": 296.79769599897554
+    },
+    "successful_requests": 18000,
+    "successful_requests_per_second": 100.0,
+    "warmup_outcomes": {
+      "success": 20
+    }
+  }
+}

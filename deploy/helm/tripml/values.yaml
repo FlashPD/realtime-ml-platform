@@ -1,0 +1,128 @@
+credentialsSecret: tripml-infra-credentials
+
+# Local, opt-in serving visibility. Create the Grafana admin Secret before enabling.
+monitoring:
+  enabled: false
+  prometheus:
+    image:
+      repository: prom/prometheus
+      tag: v3.14.0
+    persistence:
+      size: 2Gi
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: 500m, memory: 512Mi}
+  grafana:
+    image:
+      repository: grafana/grafana
+      tag: 13.2.2
+    adminSecret: tripml-grafana-admin
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits: {cpu: 500m, memory: 384Mi}
+
+# Enable only after the registry has a promoted model. External service addresses are
+# optional; empty values resolve to this release's MLflow, Redis, and Redpanda services.
+serving:
+  enabled: false
+  image:
+    repository: tripml-serving
+    tag: 0.1.0
+  replicas: 1
+  trackingUri: ""
+  registeredModelName: tripml-trip-duration
+  productionAlias: production
+  redisHost: ""
+  bootstrapServers: ""
+  predictionTopic: predictions
+  topicPartitions: 3
+  topicReplicationFactor: 1
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: "1", memory: 1Gi}
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 70
+
+global:
+  imagePullPolicy: IfNotPresent
+  storageClass: standard
+
+postgresql:
+  enabled: true
+  image:
+    repository: postgres
+    tag: 16.15-bookworm
+  database: tripml
+  username: tripml
+  persistence:
+    size: 5Gi
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: "1", memory: 1Gi}
+
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: 8.8.0-alpine3.23
+  persistence:
+    size: 1Gi
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+
+minio:
+  enabled: true
+  image:
+    repository: quay.io/minio/minio
+    tag: RELEASE.2025-09-07T16-13-09Z
+  persistence:
+    size: 10Gi
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: "1", memory: 1Gi}
+
+redpanda:
+  enabled: true
+  image:
+    repository: docker.redpanda.com/redpandadata/redpanda
+    tag: v26.2.2
+  persistence:
+    size: 5Gi
+  resources:
+    requests: {cpu: 250m, memory: 768Mi}
+    limits: {cpu: "1", memory: 1536Mi}
+
+airflow:
+  enabled: true
+  image:
+    repository: tripml-airflow
+    tag: 0.1.0
+  metadataDatabase: airflow
+  persistence:
+    dataSize: 10Gi
+    logsSize: 2Gi
+  resources:
+    apiServer:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: 500m, memory: 768Mi}
+    scheduler:
+      requests: {cpu: 250m, memory: 512Mi}
+      limits: {cpu: "1", memory: 1536Mi}
+    dagProcessor:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: 500m, memory: 768Mi}
+
+mlflow:
+  enabled: true
+  image:
+    repository: tripml-mlflow
+    tag: 0.1.0
+  backendDatabase: mlflow
+  artifactBucket: tripml-mlflow
+  resources:
+    requests: {cpu: 100m, memory: 1Gi}
+    limits: {cpu: "1", memory: 2Gi}

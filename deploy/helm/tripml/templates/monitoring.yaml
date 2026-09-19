@@ -1,0 +1,166 @@
+{{- if .Values.monitoring.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "tripml.fullname" . }}-prometheus
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "tripml.fullname" . }}-prometheus
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "tripml.fullname" . }}-prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "tripml.fullname" . }}-prometheus
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "tripml.fullname" . }}-prometheus
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "tripml.fullname" . }}-prometheus
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: {{ .Values.global.storageClass | quote }}
+  resources:
+    requests:
+      storage: {{ .Values.monitoring.prometheus.persistence.size }}
+{{- range $component := list "prometheus" "grafana" }}
+{{- $settings := index $.Values.monitoring $component }}
+{{- $prometheus := eq $component "prometheus" }}
+{{- $port := ternary 9090 3000 $prometheus }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tripml.fullname" $ }}-{{ $component }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "tripml.selectorLabels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $component }}
+  ports:
+    - {name: http, port: {{ $port }}, targetPort: http}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tripml.fullname" $ }}-{{ $component }}
+  labels:
+    {{- include "tripml.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $component }}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels:
+      {{- include "tripml.selectorLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: {{ $component }}
+  template:
+    metadata:
+      labels:
+        {{- include "tripml.selectorLabels" $ | nindent 8 }}
+        app.kubernetes.io/component: {{ $component }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/monitoring-config.yaml") $ | sha256sum }}
+    spec:
+      automountServiceAccountToken: {{ $prometheus }}
+      {{- if $prometheus }}
+      serviceAccountName: {{ include "tripml.fullname" $ }}-prometheus
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: {{ ternary 65534 472 $prometheus }}
+        runAsGroup: {{ ternary 65534 472 $prometheus }}
+        fsGroup: {{ ternary 65534 472 $prometheus }}
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: {{ $component }}
+          image: "{{ $settings.image.repository }}:{{ $settings.image.tag }}"
+          imagePullPolicy: {{ $.Values.global.imagePullPolicy }}
+          {{- if $prometheus }}
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --storage.tsdb.retention.time=24h
+            - --storage.tsdb.retention.size=1GB
+          {{- else }}
+          env:
+            - {name: GF_AUTH_ANONYMOUS_ENABLED, value: "false"}
+            - {name: GF_USERS_ALLOW_SIGN_UP, value: "false"}
+            - {name: GF_ANALYTICS_REPORTING_ENABLED, value: "false"}
+            - {name: GF_ANALYTICS_CHECK_FOR_UPDATES, value: "false"}
+            - {name: GF_PLUGINS_PREINSTALL_DISABLED, value: "true"}
+            - {name: GF_PLUGINS_PREINSTALL_AUTO_UPDATE, value: "false"}
+            - {name: GF_LOG_MODE, value: console}
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $settings.adminSecret }}
+                  key: admin-password
+          {{- end }}
+          ports:
+            - {name: http, containerPort: {{ $port }}}
+          startupProbe:
+            httpGet: {path: {{ ternary "/-/ready" "/api/health" $prometheus }}, port: http}
+            failureThreshold: 60
+            periodSeconds: 5
+          readinessProbe:
+            httpGet: {path: {{ ternary "/-/ready" "/api/health" $prometheus }}, port: http}
+          livenessProbe:
+            httpGet: {path: {{ ternary "/-/healthy" "/api/health" $prometheus }}, port: http}
+          resources:
+            {{- toYaml $settings.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            {{- if $prometheus }}
+            - {name: data, mountPath: /prometheus}
+            - {name: config, mountPath: /etc/prometheus, readOnly: true}
+            {{- else }}
+            - {name: data, mountPath: /var/lib/grafana}
+            - {name: datasource, mountPath: /etc/grafana/provisioning/datasources, readOnly: true}
+            - {name: provider, mountPath: /etc/grafana/provisioning/dashboards, readOnly: true}
+            - {name: dashboards, mountPath: /var/lib/grafana/dashboards, readOnly: true}
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+        {{- if $prometheus }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "tripml.fullname" $ }}-prometheus
+        - name: config
+          configMap:
+            name: {{ include "tripml.fullname" $ }}-prometheus
+        {{- else }}
+        - name: data
+          emptyDir: {sizeLimit: 256Mi}
+        - name: datasource
+          configMap:
+            name: {{ include "tripml.fullname" $ }}-grafana
+            items: [{key: datasources.yaml, path: datasources.yaml}]
+        - name: provider
+          configMap:
+            name: {{ include "tripml.fullname" $ }}-grafana
+            items: [{key: dashboards.yaml, path: dashboards.yaml}]
+        - name: dashboards
+          configMap:
+            name: {{ include "tripml.fullname" $ }}-dashboards
+        {{- end }}
+{{- end }}
+{{- end }}

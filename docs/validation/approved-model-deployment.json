@@ -1,0 +1,246 @@
+{
+  "application_smokes": {
+    "known_positive": {
+      "native_prediction_seconds": 1206.2897868634866,
+      "prediction": {
+        "estimated_duration_seconds": 1206.2897868634866,
+        "feature_fallback": true,
+        "feature_timestamps": {},
+        "features_used": {
+          "dropoff_zone_id": 231,
+          "passenger_count": 1,
+          "pickup_hour_of_week": 136,
+          "pickup_zone_id": 107,
+          "trip_distance_miles": 2.81
+        },
+        "model_version": "98ef1dd9ef4447f7-static",
+        "prediction_id": "6bdb2786-5a85-46c3-8727-a5e08a7686dc",
+        "schema_version": "1.1",
+        "served_at": "2026-09-19T14:46:20.707754Z",
+        "trip_id": "deployment-known_positive-42d21ef71f39428bb6c6b575216b8fe6"
+      },
+      "publication": "acknowledged",
+      "request": {
+        "dropoff_zone_id": 231,
+        "passenger_count": 1,
+        "pickup_time": "2024-04-12T16:07:29-04:00",
+        "pickup_zone_id": 107,
+        "schema_version": "1.1",
+        "trip_distance_miles": 2.81,
+        "trip_id": "deployment-known_positive-42d21ef71f39428bb6c6b575216b8fe6"
+      }
+    },
+    "unknown": {
+      "native_prediction_seconds": 770.617222702674,
+      "prediction": {
+        "estimated_duration_seconds": 770.617222702674,
+        "feature_fallback": true,
+        "feature_timestamps": {},
+        "features_used": {
+          "dropoff_zone_id": 68,
+          "passenger_count": null,
+          "pickup_hour_of_week": 2,
+          "pickup_zone_id": 114,
+          "trip_distance_miles": 2.54
+        },
+        "model_version": "98ef1dd9ef4447f7-static",
+        "prediction_id": "46566caa-0eeb-4b49-8d1b-f2c37ee4dedf",
+        "schema_version": "1.1",
+        "served_at": "2026-09-19T14:46:20.714300Z",
+        "trip_id": "deployment-unknown-e297a20631ec415181755b71a1b389f6"
+      },
+      "publication": "acknowledged",
+      "request": {
+        "dropoff_zone_id": 68,
+        "passenger_count": null,
+        "pickup_time": "2024-04-07T02:35:00-04:00",
+        "pickup_zone_id": 114,
+        "schema_version": "1.1",
+        "trip_distance_miles": 2.54,
+        "trip_id": "deployment-unknown-e297a20631ec415181755b71a1b389f6"
+      }
+    },
+    "zero": {
+      "native_prediction_seconds": 1340.8554464175763,
+      "prediction": {
+        "estimated_duration_seconds": 1340.8554464175763,
+        "feature_fallback": true,
+        "feature_timestamps": {},
+        "features_used": {
+          "dropoff_zone_id": 216,
+          "passenger_count": 0,
+          "pickup_hour_of_week": 61,
+          "pickup_zone_id": 132,
+          "trip_distance_miles": 7.5
+        },
+        "model_version": "98ef1dd9ef4447f7-static",
+        "prediction_id": "eb8f56de-880f-4327-8350-494e72cb4970",
+        "schema_version": "1.1",
+        "served_at": "2026-09-19T14:46:20.716818Z",
+        "trip_id": "deployment-zero-f0d3b6bbb0a843f8b679c27446de804f"
+      },
+      "publication": "acknowledged",
+      "request": {
+        "dropoff_zone_id": 216,
+        "passenger_count": 0,
+        "pickup_time": "2024-04-02T13:20:03-04:00",
+        "pickup_zone_id": 132,
+        "schema_version": "1.1",
+        "trip_distance_miles": 7.5,
+        "trip_id": "deployment-zero-f0d3b6bbb0a843f8b679c27446de804f"
+      }
+    }
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "outcome": "failed before publication",
+      "reason": "MLflow host allowlist rejected the forwarded localhost port; chart fixed and regression tested"
+    },
+    {
+      "attempt": 2,
+      "outcome": "registered version 1; smoke interrupted",
+      "reason": "Host-side direct MinIO artifact download could not reach cluster-only endpoint"
+    },
+    {
+      "artifact_download_environment": {
+        "MLFLOW_ENABLE_PROXY_MULTIPART_DOWNLOAD": "false"
+      },
+      "attempt": 3,
+      "outcome": "passed, reused version 1 without alias mutation"
+    }
+  ],
+  "broker": {
+    "matched_records": {
+      "46566caa-0eeb-4b49-8d1b-f2c37ee4dedf": {
+        "offset": 1,
+        "partition": 1
+      },
+      "6bdb2786-5a85-46c3-8727-a5e08a7686dc": {
+        "offset": 0,
+        "partition": 1
+      },
+      "eb8f56de-880f-4327-8350-494e72cb4970": {
+        "offset": 0,
+        "partition": 2
+      }
+    },
+    "topic": "predictions-batch-release-v2"
+  },
+  "cluster": {
+    "context": "kind-tripml",
+    "image": "docker.io/library/tripml-serving:16bc98e7d329a2a4065de6b1fedc5f240feaae40d319e887cac9eb65adf6c991",
+    "image_id": "sha256:16bc98e7d329a2a4065de6b1fedc5f240feaae40d319e887cac9eb65adf6c991",
+    "namespace": "tripml",
+    "pod": "tripml-tripml-serving-6fb6fd74d7-scgps",
+    "ready": true,
+    "restart_count": 0
+  },
+  "helm_release": {
+    "name": "tripml",
+    "revision": 13,
+    "serving_test": "Succeeded",
+    "status": "deployed"
+  },
+  "legacy_null_http_status": 422,
+  "limitations": [
+    "Three cohort requests and one Helm smoke are not a load test",
+    "Monitoring capture and broker failure/recovery remain pending",
+    "Single-node private kind deployment; no public endpoint or high-availability claim",
+    "Raw model/data artifacts remain local and ignored by Git"
+  ],
+  "model": {
+    "config_fingerprint": "64f0fd54f672a0ea622396ee5b14ff72607983562a312ac0786d446f0cfe0d7f",
+    "holdout_month": "2024-04",
+    "holdout_rows": 3419441,
+    "run_id": "98ef1dd9ef4447f7",
+    "static_model_sha256": "0cc4a1159e39d15b44607e3d06ffd7cf74e6ae1f66a58808809479c17b7dde9c",
+    "train_months": [
+      "2024-01",
+      "2024-02",
+      "2024-03"
+    ],
+    "train_rows": 9316058
+  },
+  "raw_evidence_root": "artifacts/deployments/batch-release-98ef1dd9ef4447f7",
+  "raw_evidence_sha256": {
+    "after-resources.json": "f794c4617ac94d9bb46907f35391a08d9f2c481739bbd9c0672f66ab04739521",
+    "before-resources.json": "7fad95d690fff540eb7ee417a930867ecd4b8c5698637f29bc7d5a27b3952b2e",
+    "deployed-validation-exit.json": "124fd50cb6d223cdd18fedc166d00af7254199b6e6dedf9be82f71db87af6d01",
+    "deployed-validation.json": "3de452068f29f35368daaf35c8995b32ab37dd2257c9eb6ca1d277b2e2c7303f",
+    "deployed-validation.stderr.log": "6a01ed3c889c7a457a6bff7475a78b2dc106a3896721895f2e8e7816fc0424e9",
+    "helm-serving-test.log": "4bed22dfdd8b928220968133086892f4567e56ab0871b5e74dce127abba18fb9",
+    "mlflow-forward.log": "aa8834d9770f9105596db3c4eecaa646b578438b1bfb174cd337fd5c796f2e65",
+    "mlflow-host-fix.log": "139fb5a996e34d67400376ac8b9a4182ab20bb811d0cf4276dd972559458ccaa",
+    "mlflow-upgrade.log": "97e53e991f58ae76900ca0f5befc7635992c26d21d31ef58be738177b6b63b66",
+    "planned-infrastructure.yaml": "0d78c3e141f28664740ea425adbeaa6b2de640b7da60a1da4404aa34276d02d0",
+    "planned-serving.yaml": "dd636bec06ea7b3f1d2f45226ddbbc8dd079877207b5210966838566cf716616",
+    "preflight.json": "ac2fb920db6767ad1d24731bb64d1dfc08d505830eac97af30ded7f7d775d86c",
+    "publication-2.log": "01b04d166ffc717eb01fedbdd0ce1daa9c0b3a9e9b2c06845b872abac3087f20",
+    "publication-3.log": "3381388e457b522f155bbfa24686963545008b2f6e91945452b7c788cf311fd0",
+    "publication.log": "fb768db44c52aed0fe0cc60f85c88e4ef1a2ae96026ad5dae3c6563da122311b",
+    "registry-validation-2/destination.json": "4172538916fc77d9edfdf236f6e3974806dc9b0c65b128fc19af7b9abd91764b",
+    "registry-validation-2/interrupted.json": "19b42d144c278d568316c1ee1a5eeb401092cafa769c99059545de8eaed1a02d",
+    "registry-validation-2/publication.json": "f5ff5ef454b470e1ee86def0d109d16d29b39ec67b0d818af56c0ca20332cd16",
+    "registry-validation-3/destination.json": "4172538916fc77d9edfdf236f6e3974806dc9b0c65b128fc19af7b9abd91764b",
+    "registry-validation-3/metrics.txt": "202f8edcdd16313fe9b8f481db03e43e5ee179b245536b44a217f842b3d0ce71",
+    "registry-validation-3/publication.json": "b2ef42ebf8149392a0064559f1ffea8ae56af3ce4d4f462e11b9967a6608f104",
+    "registry-validation-3/validation.json": "f0d58b2e22e128669cc9363877041a2af65c40328a4aef15a75001466f4c9777",
+    "registry-validation/destination.json": "4172538916fc77d9edfdf236f6e3974806dc9b0c65b128fc19af7b9abd91764b",
+    "registry-validation/failure.json": "db09c72b5a5bcd4dd9f5a20fa6c93f777356e8ad0a468333771f3ec5303ecbd6",
+    "running-image.json": "de1bfab6792b6345b402947dd35decc927554e17ac725da140a600ef18a24aea",
+    "serving-image-verification.json": "896461a1b82fb3c5b187c75966118a4764baf55b32fdce77d3dc271d3b21ca9b",
+    "serving-metrics.txt": "120ea09e2bae19e64c643ab64ebf6a3844618e5ad0f63c840f1bb983ed344bd5",
+    "serving-upgrade.log": "2eb7ed3c0a96b3f585382b55073ccf03440d646266af1243e96f84c947151c4e",
+    "tests.log": "37d624693a4a3b635dc22f4041dbedb6430e3112bd760a864662a0730ca60521"
+  },
+  "readiness": {
+    "feature_model_version": "gold-features-v2",
+    "mode": "static_primary",
+    "model_version": "98ef1dd9ef4447f7-static",
+    "publication_mode": "acknowledged",
+    "registry_version": "1",
+    "status": "ready",
+    "streaming_model_version": null
+  },
+  "registry": {
+    "registered_model_name": "tripml-trip-duration-static-v2",
+    "registered_version": "1",
+    "retry_alias_updated": false,
+    "runs": [
+      {
+        "artifact_sha256": "be9605916be32e1febbebc8162e500be94356ad9ca6ff88438933d8eb5f2c7f8",
+        "role": "baseline",
+        "run_id": "c07b360ec7504fa3b79c50685b7f9e0e"
+      },
+      {
+        "artifact_sha256": "0cc4a1159e39d15b44607e3d06ffd7cf74e6ae1f66a58808809479c17b7dde9c",
+        "role": "static_candidate",
+        "run_id": "dac9e93249974772a972cedf8ab7b33e"
+      },
+      {
+        "artifact_sha256": "709c91f46ff7cde44fea68b50c5a2e74333aaf2ba8d0d15b50a32f81e89668c1",
+        "role": "streaming_candidate",
+        "run_id": "d12a194fa9d0415fbc06bf57ddf981cb"
+      }
+    ],
+    "service_uri": "http://tripml-tripml-mlflow:5000"
+  },
+  "scope": "In-cluster Service HTTP and broker readback; no load/capacity claim",
+  "software_checks": {
+    "coverage_pct": 94.89,
+    "helm_lint_render": "passed",
+    "mypy": "passed",
+    "ruff": "passed",
+    "tests_passed": 312,
+    "tests_skipped": 6
+  },
+  "source_sha256": {
+    "deploy/helm/tripml/templates/mlflow.yaml": "fa600bf985ac1b621185b44f7d81433b0d9abeb76d072704c6a9c5be2169e8c4",
+    "deploy/helm/tripml/values-batch-release.yaml": "4ab4befb32ad9dd23173cd8e42bf39dfd96416d98cd1d9aac7cab84818c700c8",
+    "examples/training/batch-release.yaml": "8d3e9d939fd3e0331847c667bec9a685164ffc060898101b7ebbbe74711d54e6",
+    "scripts/check-deployed-model.py": "23973cdcffde48fa03278e81eda556e1e995aa1028a204bb7f485186b5c85305",
+    "scripts/validate-release-model.py": "92d345dbc86fc281542f204134b5bdb36d2d41e9a4b4cf989551b1bc66386fe7"
+  },
+  "validated_at": "2026-09-19T14:46:20.846978+00:00"
+}

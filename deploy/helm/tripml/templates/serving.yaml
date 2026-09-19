@@ -1,0 +1,169 @@
+{{- if .Values.serving.enabled }}
+{{- if and (not .Values.mlflow.enabled) (not .Values.serving.trackingUri) }}
+{{- fail "serving requires MLflow or an explicit serving.trackingUri" }}
+{{- end }}
+{{- if and (not .Values.redis.enabled) (not .Values.serving.redisHost) }}
+{{- fail "serving requires Redis or an explicit serving.redisHost" }}
+{{- end }}
+{{- if and (not .Values.redpanda.enabled) (not .Values.serving.bootstrapServers) }}
+{{- fail "serving requires Redpanda or explicit serving.bootstrapServers" }}
+{{- end }}
+{{- if and .Values.serving.autoscaling.enabled (gt (int .Values.serving.autoscaling.minReplicas) (int .Values.serving.autoscaling.maxReplicas)) }}
+{{- fail "serving.autoscaling.minReplicas must not exceed maxReplicas" }}
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tripml.fullname" . }}-serving
+  labels:
+    {{- include "tripml.labels" . | nindent 4 }}
+    app.kubernetes.io/component: serving
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "tripml.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: serving
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tripml.fullname" . }}-serving
+  labels:
+    {{- include "tripml.labels" . | nindent 4 }}
+    app.kubernetes.io/component: serving
+spec:
+  {{- if not .Values.serving.autoscaling.enabled }}
+  replicas: {{ .Values.serving.replicas }}
+  {{- end }}
+  revisionHistoryLimit: 3
+  progressDeadlineSeconds: 600
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  selector:
+    matchLabels:
+      {{- include "tripml.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: serving
+  template:
+    metadata:
+      labels:
+        {{- include "tripml.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: serving
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "8000"
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      initContainers:
+        - name: ensure-prediction-topic
+          image: "{{ .Values.serving.image.repository }}:{{ .Values.serving.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command: ["tripml", "publication", "ensure-topic"]
+          args:
+            - --partitions
+            - {{ .Values.serving.topicPartitions | quote }}
+            - --replication-factor
+            - {{ .Values.serving.topicReplicationFactor | quote }}
+          env:
+            - name: TRIPML_PUBLICATION__BOOTSTRAP_SERVERS
+              value: {{ default (printf "%s-redpanda:9092" (include "tripml.fullname" .)) .Values.serving.bootstrapServers | quote }}
+            - name: TRIPML_PUBLICATION__TOPIC
+              value: {{ .Values.serving.predictionTopic | quote }}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      containers:
+        - name: serving
+          image: "{{ .Values.serving.image.repository }}:{{ .Values.serving.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          command: ["tripml", "serve", "--host", "0.0.0.0", "--port", "8000"]
+          env:
+            - name: TRIPML_TRACKING__TRACKING_URI
+              value: {{ default (printf "http://%s-mlflow:5000" (include "tripml.fullname" .)) .Values.serving.trackingUri | quote }}
+            - name: TRIPML_TRACKING__REGISTERED_MODEL_NAME
+              value: {{ .Values.serving.registeredModelName | quote }}
+            - name: TRIPML_TRACKING__PRODUCTION_ALIAS
+              value: {{ .Values.serving.productionAlias | quote }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.credentialsSecret }}
+                  key: redis-password
+            - name: TRIPML_SERVING__REDIS_URL
+              value: {{ printf "redis://:$(REDIS_PASSWORD)@%s:6379/0" (default (printf "%s-redis" (include "tripml.fullname" .)) .Values.serving.redisHost) | quote }}
+            - name: TRIPML_PUBLICATION__BOOTSTRAP_SERVERS
+              value: {{ default (printf "%s-redpanda:9092" (include "tripml.fullname" .)) .Values.serving.bootstrapServers | quote }}
+            - name: TRIPML_PUBLICATION__TOPIC
+              value: {{ .Values.serving.predictionTopic | quote }}
+          ports:
+            - {name: http, containerPort: 8000}
+          startupProbe:
+            httpGet: {path: /readyz, port: http}
+            failureThreshold: 60
+            periodSeconds: 5
+            timeoutSeconds: 2
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 5
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 15
+            timeoutSeconds: 2
+          resources:
+            {{- toYaml .Values.serving.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {sizeLimit: 512Mi}
+{{- if .Values.serving.autoscaling.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "tripml.fullname" . }}-serving
+  labels:
+    {{- include "tripml.labels" . | nindent 4 }}
+    app.kubernetes.io/component: serving
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "tripml.fullname" . }}-serving
+  minReplicas: {{ .Values.serving.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.serving.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.serving.autoscaling.targetCPUUtilizationPercentage }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+{{- end }}
+{{- end }}

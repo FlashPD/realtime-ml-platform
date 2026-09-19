@@ -1,0 +1,32 @@
+version: 2
+
+models:
+  - name: training_features
+    description: >-
+      One row per target-month pickup with rolling zone features computed only from trips that
+      completed strictly before the pickup timestamp.
+    columns:
+      - name: trip_id
+        data_tests: [not_null, unique]
+      - name: pickup_datetime
+        data_tests: [not_null]
+      - name: pickup_zone_id
+        data_tests: [not_null]
+      - name: dropoff_zone_id
+        data_tests: [not_null]
+      - name: actual_duration_seconds
+        data_tests: [not_null]
+      - name: pu_zone_trips_15m
+        data_tests: [not_null]
+      - name: pu_zone_trips_60m
+        data_tests: [not_null]
+      - name: do_zone_trips_60m
+        data_tests: [not_null]
+      - name: contract_version
+        data_tests: [not_null]
+      - name: feature_model_version
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['gold-features-v1', 'gold-features-v2']

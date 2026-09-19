@@ -1,0 +1,865 @@
+{
+  "cleanup": {
+    "main_broker_uid_unchanged": true,
+    "main_serving_scrapes_up_during_failure": true,
+    "namespace_deleted": "tripml-broker-check-db72fefb",
+    "temporary_load_pods_absent": true,
+    "verified_at": "2026-09-19T15:04:44.533630+00:00"
+  },
+  "failure_checks": {
+    "after": {
+      "container_id": "containerd://d3b57c553d5226f329ebd1b57141ebf7d3371995c16ba033015faa5b821096aa",
+      "image_id": "sha256:16bc98e7d329a2a4065de6b1fedc5f240feaae40d319e887cac9eb65adf6c991",
+      "process_start_ticks": "741518",
+      "restarts": 0,
+      "uid": "afcf2760-a9ad-4c0a-92a3-7069fefcbdf3"
+    },
+    "baseline_passed": true,
+    "before": {
+      "container_id": "containerd://d3b57c553d5226f329ebd1b57141ebf7d3371995c16ba033015faa5b821096aa",
+      "image_id": "sha256:16bc98e7d329a2a4065de6b1fedc5f240feaae40d319e887cac9eb65adf6c991",
+      "process_start_ticks": "741518",
+      "restarts": 0,
+      "uid": "afcf2760-a9ad-4c0a-92a3-7069fefcbdf3"
+    },
+    "outage_passed": true,
+    "outage_response_semantics": true,
+    "recovered_load_passed": true,
+    "recovered_within_60s": true,
+    "same_api_process": true
+  },
+  "limitations": [
+    "One healthy run and one isolated failure run; no saturation or autoscaling claim",
+    "Latency includes broker acknowledgment and dispatch lag; per-request tails can exceed the P95 objective",
+    "Failure baseline/recovery use 20 requests/s and outage uses 2/s, not the primary 100/s profile",
+    "Broker matching covers measured and warm-up benchmark predictions; standalone probes and preexisting records are counted separately",
+    "Delivery uncertainty is explicit for failed HTTP requests; no exactly-once or high-availability claim",
+    "Monitoring exports include legitimate NaN/empty intervals; static feature age is not live streaming evidence",
+    "Raw local artifacts remain ignored by Git; clean-checkout packaging remains pending"
+  ],
+  "outage_probe": {
+    "body": {
+      "detail": {
+        "delivery_unknown": true,
+        "message": "prediction publication was not confirmed",
+        "outcome": "failed",
+        "prediction_id": "639039fc-af37-4f9e-b49b-fd80d1eedb65"
+      }
+    },
+    "elapsed_seconds": 1.0494327490005162,
+    "publication": "unconfirmed",
+    "status": 503
+  },
+  "plan": {
+    "declared_at": "2026-09-19T14:51:43.218897+00:00",
+    "failure_expectations": {
+      "no_dropped_arrivals": true,
+      "no_request_timeouts": true,
+      "outage_http_status": 503,
+      "publication": "unconfirmed",
+      "recovery_seconds_objective": 60,
+      "same_serving_pod_and_process": true
+    },
+    "failure_isolation": "A new namespace with its own serving replica, persistent broker and monitoring; main platform broker is untouched",
+    "failure_phases": {
+      "baseline": {
+        "rate": 20,
+        "requests": 2000,
+        "warmup": 20
+      },
+      "broker_down": {
+        "rate": 2,
+        "requests": 120,
+        "warmup": 0
+      },
+      "recovered": {
+        "rate": 20,
+        "requests": 2000,
+        "warmup": 20
+      }
+    },
+    "healthy_load": {
+      "concurrency": 32,
+      "max_error_rate": 0.01,
+      "no_keepalive": false,
+      "p95_objective_ms": 50,
+      "rate": 100,
+      "requests": 10000,
+      "timeout_seconds": 2,
+      "warmup": 20
+    },
+    "image_id": "sha256:16bc98e7d329a2a4065de6b1fedc5f240feaae40d319e887cac9eb65adf6c991",
+    "model": "98ef1dd9ef4447f7-static",
+    "preserve_failed_attempts": true,
+    "workload": "artifacts/workloads/april-passenger-v1_1"
+  },
+  "raw_evidence_root": "artifacts/releases/batch-operations-20260919",
+  "raw_evidence_sha256": {
+    "broker-failure/benchmark-baseline-exit.json": "81868a6e94ffc0178bf833deb1c9013d9fab4ee95ddb876a5e8ec4f1d26376d2",
+    "broker-failure/benchmark-baseline.log": "b47b5f43483baa4016fb9f37813304ae488b147dfd68f4e379290e6ec65996d0",
+    "broker-failure/benchmark-broker-down-exit.json": "81868a6e94ffc0178bf833deb1c9013d9fab4ee95ddb876a5e8ec4f1d26376d2",
+    "broker-failure/benchmark-broker-down.log": "cdf75d4609fbcc1c290ff860ed6ee297b4769c6393022d71ea6a9e2a4378cb35",
+    "broker-failure/benchmark-recovered-exit.json": "81868a6e94ffc0178bf833deb1c9013d9fab4ee95ddb876a5e8ec4f1d26376d2",
+    "broker-failure/benchmark-recovered.log": "7e56239b2fa4dd05490864a3f35abc67714354cc84e34ac39bfb1aa6bac49305",
+    "broker-failure/cleanup.json": "a7e113c5d5fb52556b240a9cb7f17b523e8b6dbc947b663f9a75d69316b1022a",
+    "broker-failure/evidence/baseline-after-metrics.txt": "36834d05dd7662429e8cac662de3878dde4d7ba374c2a385c3d3a577420f060f",
+    "broker-failure/evidence/baseline-after-readiness.json": "462c34637655e922bd3c10a7cf8a9e97bd1b866c5e74886362d0cc5d0be8e813",
+    "broker-failure/evidence/baseline-before-metrics.txt": "da546b6604dd4e927e851543fbb3e1c82a08579badba8ae5d8f513b2ba1cca63",
+    "broker-failure/evidence/baseline-before-readiness.json": "462c34637655e922bd3c10a7cf8a9e97bd1b866c5e74886362d0cc5d0be8e813",
+    "broker-failure/evidence/baseline-result.json": "df51d606ad326d0d1e4ecd440532c78d7f8e810da7c2a049fda21dd27200f3d1",
+    "broker-failure/evidence/baseline/README.md": "0429166e3fa514f5c3c1b0cc54dca3ec2a9e9c32dfdae14e28cc5d715c014d3d",
+    "broker-failure/evidence/baseline/config.json": "034fd2a025e46c03771cd9c1efd0fead9dc640e2925b516981559dcc46f6b20e",
+    "broker-failure/evidence/baseline/requests.jsonl": "018107e4d3da90ccbe1e5878478c9a81ec054cbfa31b866a43a5c09b9e67060a",
+    "broker-failure/evidence/baseline/samples.jsonl": "034f7c0cda9530790d85dde759c458f5fcb071d8765cfd9ace95a6542ba37471",
+    "broker-failure/evidence/baseline/summary.json": "41bdebf542581f95ba4cd60dbc5a1f1f7cb0d3a5aa82e9ee0b351234c53ddab1",
+    "broker-failure/evidence/baseline/warmup.jsonl": "855030f3ea6ac4cd1f69035e146889fd0171a32d156950abfeb83229b75affa1",
+    "broker-failure/evidence/baseline/workload-manifest.json": "19193a53a95025910f0fb2bca5e0a03df63ef0b01cb29162610502704b5744d4",
+    "broker-failure/evidence/broker-down-after-metrics.txt": "074b5d73be3805ee4030eed3f22e198c7d93af4448dc3fadbd88fde0f209cd31",
+    "broker-failure/evidence/broker-down-after-readiness.json": "462c34637655e922bd3c10a7cf8a9e97bd1b866c5e74886362d0cc5d0be8e813",
+    "broker-failure/evidence/broker-down-before-metrics.txt": "c687461b27b3eb340bd7b5e9c7c197feb1e3ff33bee07a1be5c35e9bc0f9e239",
+    "broker-failure/evidence/broker-down-before-readiness.json": "462c34637655e922bd3c10a7cf8a9e97bd1b866c5e74886362d0cc5d0be8e813",
+    "broker-failure/evidence/broker-down-result.json": "5bf2838ac59c092f7430cbc52543d02959bcf55bb6e29767d5ef3cb2b5822fd0",
+    "broker-failure/evidence/broker-down/README.md": "1f9756fcfa333a369115536d102dc72e6ecf26fb77fd67ba7cc8330f899ae70b",
+    "broker-failure/evidence/broker-down/config.json": "0125287e31880daa78f80b2939fd4222a5e533bb9989d8c0cb6f260a84d1b309",
+    "broker-failure/evidence/broker-down/requests.jsonl": "018107e4d3da90ccbe1e5878478c9a81ec054cbfa31b866a43a5c09b9e67060a",
+    "broker-failure/evidence/broker-down/samples.jsonl": "c757f8fee59af19030f68d1afa50c3a0ba5ebe3e4b88f011acef2fc2e9da3c8b",
+    "broker-failure/evidence/broker-down/summary.json": "cb807cbabc4330ab724bb04e8b0583805c16648328dcfe781fb4802f90f3a475",
+    "broker-failure/evidence/broker-down/warmup.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "broker-failure/evidence/broker-down/workload-manifest.json": "19193a53a95025910f0fb2bca5e0a03df63ef0b01cb29162610502704b5744d4",
+    "broker-failure/evidence/broker-readback.json": "ed471629766ea4c06dbd261d667ce92aa7891294f93cc5cc1b0a90e7b20b2d0a",
+    "broker-failure/evidence/consumed-predictions.jsonl": "ef20d3d445278740532b62013d41bcfdad2a42d481f306e0c59bfa6e2ca8e11d",
+    "broker-failure/evidence/driver.py": "90e2ef7eca79b576646f2a7e53ae600ea0124cd3422e70b03efbda7e365d55e9",
+    "broker-failure/evidence/final-dashboard-queries.json": "d5c80b2864d53f49a84072abc999b4d3e24330279377801d1a57cf17350d084a",
+    "broker-failure/evidence/final-grafana-health.json": "64ef1a0deb08d77d50f3e9976eda95fbdb1a93de354bb474f5b56cb9d71fff1e",
+    "broker-failure/evidence/final-targets.json": "815bfeb3cd9e76ac5c424d453148ccb410a0cb20917314290d9649abb8de126d",
+    "broker-failure/evidence/grafana-dashboard.json": "0ca7124141ed3e410ad6c8287abe360dfc96eca6e2adce1355af27a32ebbe3f0",
+    "broker-failure/evidence/manifest.json": "19193a53a95025910f0fb2bca5e0a03df63ef0b01cb29162610502704b5744d4",
+    "broker-failure/evidence/recovered-after-metrics.txt": "d194ebc0453ffb0246497dc760e955cb4a0c965cbba8e6d36fb1b2ef720d57a1",
+    "broker-failure/evidence/recovered-after-readiness.json": "462c34637655e922bd3c10a7cf8a9e97bd1b866c5e74886362d0cc5d0be8e813",
+    "broker-failure/evidence/recovered-before-metrics.txt": "f3ce67d2d7c705f117191226ec0e6c79094bce1f09d890ae612312eb69e73e1c",
+    "broker-failure/evidence/recovered-before-readiness.json": "462c34637655e922bd3c10a7cf8a9e97bd1b866c5e74886362d0cc5d0be8e813",
+    "broker-failure/evidence/recovered-result.json": "7d8236f7a1342e52e19dcb84dcbea13b99a9acc4e0129c6e47fbf391c908bdc3",
+    "broker-failure/evidence/recovered/README.md": "11eee1be120182833e1e08d181a313eb236f9d5250ea77832792cd5a7936d7d8",
+    "broker-failure/evidence/recovered/config.json": "d8b62ea20f0d717fb82facf50527010d77f72279bcf2f3e87928d83d82559f00",
+    "broker-failure/evidence/recovered/requests.jsonl": "018107e4d3da90ccbe1e5878478c9a81ec054cbfa31b866a43a5c09b9e67060a",
+    "broker-failure/evidence/recovered/samples.jsonl": "9517f480e349c0d7d8f8e11fd7c9d0a4cb2a04450f2dbc327136b3866ead907d",
+    "broker-failure/evidence/recovered/summary.json": "caace2629819f649d75736bbb4863cd4fc99cd524056fcf711df8f8eae2b4efc",
+    "broker-failure/evidence/recovered/warmup.jsonl": "820404741d1edb09cadaf40ad6ab9f4c603089f529feb1a42be79a2d73decfba",
+    "broker-failure/evidence/recovered/workload-manifest.json": "19193a53a95025910f0fb2bca5e0a03df63ef0b01cb29162610502704b5744d4",
+    "broker-failure/evidence/requests.jsonl": "018107e4d3da90ccbe1e5878478c9a81ec054cbfa31b866a43a5c09b9e67060a",
+    "broker-failure/execution.json": "75fad75da80e8a5cbf99a1cc6c27f0aaaaf01a8cb33a542af55ba5eca07c0217",
+    "broker-failure/failure-checks.json": "12776d2dd416c7ac53c8fd84abdde062425855bee6508c49a68d89eb68d33dc9",
+    "broker-failure/helm.log": "beb6df04f469c4ff6da3fc579a4c8576b6ba58d66f41098218729e585db8fdf8",
+    "broker-failure/monitor-final-exit.json": "81868a6e94ffc0178bf833deb1c9013d9fab4ee95ddb876a5e8ec4f1d26376d2",
+    "broker-failure/monitor-final.log": "c83550276f97dfce314cedb21aa125b454cd37661fb9ede21ec0c36c085560a8",
+    "broker-failure/observations.jsonl": "822099be806541634bf51f4525960f09f5851e5b572bf7c210435e9b26f11cd1",
+    "broker-failure/outage-probe.json": "ae9a04235613b390cb2579de75cf4c2ab49b818081af36afe0209bdfb6936ef3",
+    "broker-failure/readback-final-exit.json": "81868a6e94ffc0178bf833deb1c9013d9fab4ee95ddb876a5e8ec4f1d26376d2",
+    "broker-failure/readback-final.log": "182bc85b825d8d4b1bc0781623f590c994f461641dffd4f205f0dd06c8be4fb2",
+    "broker-failure/recovery-probes.json": "97ee7ad6ef11c6ec005675a8b56b358aeb5d187bbf9730f5b506559f9468108b",
+    "broker-failure/result.json": "03ecea377ab1e953f5a50126dc6120a6d9fc30f287bff41bac7b450f8fb849a1",
+    "broker-failure/serving-after.json": "5bb2d4483becdd733933168c641d0f409264e6934682e089890436cb22334783",
+    "broker-failure/serving-before.json": "5bb2d4483becdd733933168c641d0f409264e6934682e089890436cb22334783",
+    "cleanup-verification.json": "e3d4bed07768f40b43fb7bc365e346e1d7879713bede24b6829cd78e4682a55b",
+    "healthy/benchmark-healthy-exit.json": "81868a6e94ffc0178bf833deb1c9013d9fab4ee95ddb876a5e8ec4f1d26376d2",
+    "healthy/benchmark-healthy.log": "49dc6174923a7b648c412bb89614bb4d63e6af29e63b32f8eb352ac91504b5b5",
+    "healthy/cleanup.json": "dc7d3cd2d71bdb3e7d782bb2f4d7480b0dccb3e7c497da3d4450a6ad3f97b481",
+    "healthy/evidence/broker-readback.json": "f9a128f82f52d7e0fae094f625807b3c1a6cc40ba716e6ba74c331d35a717213",
+    "healthy/evidence/consumed-predictions.jsonl": "1f575fa3673f267a9f4c97ac0efa9ac1347b86065eedaab4c0662c91269c48ad",
+    "healthy/evidence/driver.py": "90e2ef7eca79b576646f2a7e53ae600ea0124cd3422e70b03efbda7e365d55e9",
+    "healthy/evidence/final-dashboard-queries.json": "820f5357530511d3f49b9169aba377cd69935cea8cf87d280d0d04de712af7bd",
+    "healthy/evidence/final-grafana-health.json": "64ef1a0deb08d77d50f3e9976eda95fbdb1a93de354bb474f5b56cb9d71fff1e",
+    "healthy/evidence/final-targets.json": "96bf59bf708acede54d3f1c9170eae2eacb22d1bf5f91a353a087a26e468140e",
+    "healthy/evidence/grafana-dashboard.json": "d3e3d473936faf05cc74c89451d31b0900a7859e3b60a984082cfdae6b98cd75",
+    "healthy/evidence/healthy-after-metrics.txt": "e62f10c86637ccbddd7085bdd6f2dba61b7916c5c19ac9af62b342519bcfc780",
+    "healthy/evidence/healthy-after-readiness.json": "462c34637655e922bd3c10a7cf8a9e97bd1b866c5e74886362d0cc5d0be8e813",
+    "healthy/evidence/healthy-before-metrics.txt": "df3ad5717fd1ceea8bac0511e0fed21e007b07161633d91b3139c92f89a636ce",
+    "healthy/evidence/healthy-before-readiness.json": "462c34637655e922bd3c10a7cf8a9e97bd1b866c5e74886362d0cc5d0be8e813",
+    "healthy/evidence/healthy-result.json": "a41249f2e5708e2c01f4e735f5ed88969c55a0ab838c5340f62a8d265ad8d35c",
+    "healthy/evidence/healthy/README.md": "04f9c33e32f6d378045bdb9116964a8dcc5376702aae61c256541ce39687bef8",
+    "healthy/evidence/healthy/config.json": "d443d96a0d7791107951a020730060ddbab4e13666cdf922b2a92a44c4c4048f",
+    "healthy/evidence/healthy/requests.jsonl": "018107e4d3da90ccbe1e5878478c9a81ec054cbfa31b866a43a5c09b9e67060a",
+    "healthy/evidence/healthy/samples.jsonl": "c84d5b98922abc39927c523cfff172d927c2703bf9f67d93e59e116f01bb2063",
+    "healthy/evidence/healthy/summary.json": "c007440749a323da2993a14f1e5af6f0b5719d133dec62d8ca564261bbecc144",
+    "healthy/evidence/healthy/warmup.jsonl": "1107019a61fbfe89a1530930076571ff54ba713d551735b32cfa3a2c6fc70184",
+    "healthy/evidence/healthy/workload-manifest.json": "19193a53a95025910f0fb2bca5e0a03df63ef0b01cb29162610502704b5744d4",
+    "healthy/evidence/manifest.json": "19193a53a95025910f0fb2bca5e0a03df63ef0b01cb29162610502704b5744d4",
+    "healthy/evidence/requests.jsonl": "018107e4d3da90ccbe1e5878478c9a81ec054cbfa31b866a43a5c09b9e67060a",
+    "healthy/execution.json": "7cc99e1636418f4f33ded01e1b85c831b7db86e77d8cd90ed37f0bfd7dd24921",
+    "healthy/monitor-final-exit.json": "81868a6e94ffc0178bf833deb1c9013d9fab4ee95ddb876a5e8ec4f1d26376d2",
+    "healthy/monitor-final.log": "c83550276f97dfce314cedb21aa125b454cd37661fb9ede21ec0c36c085560a8",
+    "healthy/observations.jsonl": "9e5c985d53fa67dc2acbea765c43187a288138c1e6c10967c998498c5eaee014",
+    "healthy/readback-final-exit.json": "81868a6e94ffc0178bf833deb1c9013d9fab4ee95ddb876a5e8ec4f1d26376d2",
+    "healthy/readback-final.log": "a09c7285ab1e57356d31e02519876398ae80a810d7b5b9df179cf1c6c8e959d4",
+    "healthy/result.json": "03ecea377ab1e953f5a50126dc6120a6d9fc30f287bff41bac7b450f8fb849a1",
+    "healthy/serving-after.json": "26ff94e33f1badebb99be4ab35f6823a58145e7e51f26bc6f7d9c98644fe971d",
+    "healthy/serving-before.json": "26ff94e33f1badebb99be4ab35f6823a58145e7e51f26bc6f7d9c98644fe971d",
+    "main-after.json": "aa5387dbf4501ac4670036873b16c413141a4a395253b1f92df5a63b785506aa",
+    "main-scrapes-during-failure.json": "e4c04614bf42572267761820b03f5cddf82fd758370b78e2981a0bc2e9c8870f",
+    "monitoring-upgrade.log": "678bb0f758fb6f90b4ccf919501c0946814b95eddb3692a48fdab9bcab5b1873",
+    "nodes.json": "749aa580222ce60aa543024e6a383b1f0084e400aa78bcbb2ff8586c1bfb0898",
+    "plan.json": "69da0dd2fd8e2ba68615b0943cdcee997cc7d5e3dd501c1ac7ffff1676a6a7c1",
+    "quality-tests.log": "c665df0bbafefee5d0d0cdd23d155979b0e7bc75cba98fe91906039fb3ed0ed0"
+  },
+  "recovery_probes": [
+    {
+      "body": {
+        "detail": {
+          "delivery_unknown": true,
+          "message": "prediction publication was not confirmed",
+          "outcome": "timeout",
+          "prediction_id": "7ea72fba-24bc-48bb-b4ee-a52bd67ded78"
+        }
+      },
+      "elapsed_seconds": 1.533042000000023,
+      "publication": "unconfirmed",
+      "seconds_since_restore": 1.7730317500245292,
+      "status": 503
+    },
+    {
+      "body": {
+        "detail": {
+          "delivery_unknown": true,
+          "message": "prediction publication was not confirmed",
+          "outcome": "timeout",
+          "prediction_id": "7b02f2f2-657c-43f0-8def-c9b637be220e"
+        }
+      },
+      "elapsed_seconds": 1.5362748749994353,
+      "publication": "unconfirmed",
+      "seconds_since_restore": 4.5065337080159225,
+      "status": 503
+    },
+    {
+      "elapsed_seconds": 0.559128791999683,
+      "prediction": {
+        "estimated_duration_seconds": 1206.2897868634866,
+        "feature_fallback": true,
+        "feature_timestamps": {},
+        "features_used": {
+          "dropoff_zone_id": 231,
+          "passenger_count": 1,
+          "pickup_hour_of_week": 136,
+          "pickup_zone_id": 107,
+          "trip_distance_miles": 2.81
+        },
+        "model_version": "98ef1dd9ef4447f7-static",
+        "prediction_id": "ce114fb8-91cb-423e-ab6b-e9a8f5a8e9a9",
+        "schema_version": "1.1",
+        "served_at": "2026-09-19T15:01:30.516018Z",
+        "trip_id": "recovery-probe-5a3d8b46bde54be882452f173579e4ee"
+      },
+      "publication": "acknowledged",
+      "seconds_since_restore": 6.249362125003245,
+      "status": 200
+    }
+  ],
+  "resources": {
+    "load_generator_limit": {
+      "cpu": "1",
+      "memory": "512Mi"
+    },
+    "node_capacity": {
+      "cpu": "8",
+      "ephemeral-storage": "61202244Ki",
+      "hugepages-1Gi": "0",
+      "hugepages-2Mi": "0",
+      "hugepages-32Mi": "0",
+      "hugepages-64Ki": "0",
+      "memory": "8022576Ki",
+      "pods": "110"
+    },
+    "observed_peak_cpu_millicores": 248.4854,
+    "observed_peak_memory_mib": 203.234375,
+    "sampling_note": "Kubernetes metrics are windowed and can lag; these are observed sample maxima, not process-level peaks",
+    "serving_limit": {
+      "cpu": "1",
+      "memory": "1Gi"
+    },
+    "serving_samples": 20
+  },
+  "runs": {
+    "broker-failure": {
+      "broker_readback": {
+        "ambiguous": [],
+        "checks": {
+          "all_successes_consumed": true,
+          "no_duplicate_prediction_ids": true,
+          "no_mismatches": true
+        },
+        "expected": 4040,
+        "high_watermarks": {
+          "0": 1378,
+          "1": 1346,
+          "2": 1317
+        },
+        "matched": 4040,
+        "mismatched": [],
+        "passed": true,
+        "unrelated_records": 1
+      },
+      "execution": {
+        "context": "kind-tripml",
+        "failure": true,
+        "image": "tripml-serving:16bc98e7d329a2a4065de6b1fedc5f240feaae40d319e887cac9eb65adf6c991",
+        "namespace": "tripml-broker-check-db72fefb",
+        "started_at": "2026-09-19T14:58:13.191204+00:00"
+      },
+      "metric_deltas": {
+        "baseline": [
+          {
+            "delta": 2020.0,
+            "labels": {
+              "status": "200"
+            },
+            "name": "tripml_prediction_requests_total"
+          },
+          {
+            "delta": 2020.0,
+            "labels": {},
+            "name": "tripml_feature_fallback_total"
+          },
+          {
+            "delta": 2020.0,
+            "labels": {
+              "outcome": "disabled"
+            },
+            "name": "tripml_feature_lookup_total"
+          },
+          {
+            "delta": 2020.0,
+            "labels": {
+              "outcome": "acknowledged"
+            },
+            "name": "tripml_prediction_publication_total"
+          }
+        ],
+        "broker-down": [
+          {
+            "delta": 120.0,
+            "labels": {
+              "status": "503"
+            },
+            "name": "tripml_prediction_requests_total"
+          },
+          {
+            "delta": 120.0,
+            "labels": {
+              "outcome": "disabled"
+            },
+            "name": "tripml_feature_lookup_total"
+          },
+          {
+            "delta": 10.0,
+            "labels": {
+              "outcome": "failed"
+            },
+            "name": "tripml_prediction_publication_total"
+          },
+          {
+            "delta": 110.0,
+            "labels": {
+              "outcome": "timeout"
+            },
+            "name": "tripml_prediction_publication_total"
+          }
+        ],
+        "recovered": [
+          {
+            "delta": 2020.0,
+            "labels": {
+              "status": "200"
+            },
+            "name": "tripml_prediction_requests_total"
+          },
+          {
+            "delta": 2020.0,
+            "labels": {},
+            "name": "tripml_feature_fallback_total"
+          },
+          {
+            "delta": 2020.0,
+            "labels": {
+              "outcome": "disabled"
+            },
+            "name": "tripml_feature_lookup_total"
+          },
+          {
+            "delta": 2020.0,
+            "labels": {
+              "outcome": "acknowledged"
+            },
+            "name": "tripml_prediction_publication_total"
+          }
+        ]
+      },
+      "monitoring": {
+        "dashboard_queries": 13,
+        "end": 1789830225.861658,
+        "healthy_targets": 1,
+        "start": 1789829858.008815,
+        "traffic_visible": true
+      },
+      "phase_maxima": {
+        "baseline": {
+          "max_client_latency_ms": 121.98213600004237,
+          "max_http_latency_ms": 112.26141699989967
+        },
+        "broker-down": {
+          "max_client_latency_ms": 1511.536108000655,
+          "max_http_latency_ms": 1509.5125010002448
+        },
+        "recovered": {
+          "max_client_latency_ms": 38.28772899942123,
+          "max_http_latency_ms": 25.456459000452014
+        }
+      },
+      "serving_identity": {
+        "container_id": "containerd://d3b57c553d5226f329ebd1b57141ebf7d3371995c16ba033015faa5b821096aa",
+        "image_id": "sha256:16bc98e7d329a2a4065de6b1fedc5f240feaae40d319e887cac9eb65adf6c991",
+        "process_start_ticks": "741518",
+        "restarts": 0,
+        "uid": "afcf2760-a9ad-4c0a-92a3-7069fefcbdf3"
+      },
+      "summaries": {
+        "baseline": {
+          "all_attempted_latency_ms": {
+            "p50": 5.746671000451897,
+            "p95": 8.603688000221155,
+            "p99": 10.763969999970868
+          },
+          "artifacts_sha256": {
+            "config.json": "034fd2a025e46c03771cd9c1efd0fead9dc640e2925b516981559dcc46f6b20e",
+            "requests.jsonl": "018107e4d3da90ccbe1e5878478c9a81ec054cbfa31b866a43a5c09b9e67060a",
+            "samples.jsonl": "034f7c0cda9530790d85dde759c458f5fcb071d8765cfd9ace95a6542ba37471",
+            "warmup.jsonl": "855030f3ea6ac4cd1f69035e146889fd0171a32d156950abfeb83229b75affa1",
+            "workload-manifest.json": "19193a53a95025910f0fb2bca5e0a03df63ef0b01cb29162610502704b5744d4"
+          },
+          "client_environment": {
+            "httpx": "0.28.1",
+            "platform": "Linux-7.0.12-linuxkit-aarch64-with-glibc2.36",
+            "python": "3.12.12"
+          },
+          "dispatch_lag_ms": {
+            "p50": 1.1116850009784685,
+            "p95": 2.9508170000553946,
+            "p99": 4.314398999667901
+          },
+          "elapsed_seconds": 100.0,
+          "error_rate": 0.0,
+          "fallback_rate_among_successes": 1.0,
+          "finished_at": "2026-09-19T15:00:18.127897+00:00",
+          "gates": {
+            "all_arrivals_accounted_for": true,
+            "error_rate": true,
+            "no_load_generator_overflow": true,
+            "p95_latency": true,
+            "successful_predictions": true
+          },
+          "http_latency_ms": {
+            "p50": 4.38883300012094,
+            "p95": 6.534916999953566,
+            "p99": 7.612499999595457
+          },
+          "http_statuses": {
+            "200": 2000
+          },
+          "model_versions": {
+            "98ef1dd9ef4447f7-static": 2000
+          },
+          "outcomes": {
+            "success": 2000
+          },
+          "passed": true,
+          "publication_modes": {
+            "acknowledged": 2000
+          },
+          "run_id": "7a130955fa5e43bc95cb9e7a218402ab",
+          "scheduled_requests": 2000,
+          "schema_version": "1.0",
+          "settings": {
+            "base_url": "http://tripml-tripml-serving:8000",
+            "concurrency": 32,
+            "expected_features": "static",
+            "expected_publication": "acknowledged",
+            "label": "approved-april-baseline",
+            "max_error_rate": 0.01,
+            "no_keepalive": false,
+            "p95_objective_ms": 50.0,
+            "rate": 20.0,
+            "requests": 2000,
+            "timeout_seconds": 2.0,
+            "warmup": 20
+          },
+          "started_at": "2026-09-19T14:58:38.008815+00:00",
+          "successful_latency_ms": {
+            "p50": 5.746671000451897,
+            "p95": 8.603688000221155,
+            "p99": 10.763969999970868
+          },
+          "successful_requests": 2000,
+          "successful_requests_per_second": 20.0,
+          "warmup_outcomes": {
+            "success": 20
+          }
+        },
+        "broker-down": {
+          "all_attempted_latency_ms": {
+            "p50": 1506.8998020005893,
+            "p95": 1510.4773420007405,
+            "p99": 1511.2210040006175
+          },
+          "artifacts_sha256": {
+            "config.json": "0125287e31880daa78f80b2939fd4222a5e533bb9989d8c0cb6f260a84d1b309",
+            "requests.jsonl": "018107e4d3da90ccbe1e5878478c9a81ec054cbfa31b866a43a5c09b9e67060a",
+            "samples.jsonl": "c757f8fee59af19030f68d1afa50c3a0ba5ebe3e4b88f011acef2fc2e9da3c8b",
+            "warmup.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "workload-manifest.json": "19193a53a95025910f0fb2bca5e0a03df63ef0b01cb29162610502704b5744d4"
+          },
+          "client_environment": {
+            "httpx": "0.28.1",
+            "platform": "Linux-7.0.12-linuxkit-aarch64-with-glibc2.36",
+            "python": "3.12.12"
+          },
+          "dispatch_lag_ms": {
+            "p50": 1.173891000689764,
+            "p95": 2.0055439999850933,
+            "p99": 5.012721000639431
+          },
+          "elapsed_seconds": 61.00621631900049,
+          "error_rate": 1.0,
+          "fallback_rate_among_successes": null,
+          "finished_at": "2026-09-19T15:01:24.649363+00:00",
+          "gates": {
+            "all_arrivals_accounted_for": true,
+            "error_rate": false,
+            "no_load_generator_overflow": true,
+            "p95_latency": false,
+            "successful_predictions": false
+          },
+          "http_latency_ms": {
+            "p50": 1505.478251000568,
+            "p95": 1508.6554590006926,
+            "p99": 1509.1826260004382
+          },
+          "http_statuses": {
+            "503": 120
+          },
+          "model_versions": {},
+          "outcomes": {
+            "http_error": 120
+          },
+          "passed": false,
+          "publication_modes": {
+            "unconfirmed": 120
+          },
+          "run_id": "4887f2077ab544f9a864269544b88f19",
+          "scheduled_requests": 120,
+          "schema_version": "1.0",
+          "settings": {
+            "base_url": "http://tripml-tripml-serving:8000",
+            "concurrency": 32,
+            "expected_features": "static",
+            "expected_publication": "acknowledged",
+            "label": "approved-april-broker-down",
+            "max_error_rate": 0.01,
+            "no_keepalive": false,
+            "p95_objective_ms": 50.0,
+            "rate": 2.0,
+            "requests": 120,
+            "timeout_seconds": 2.0,
+            "warmup": 0
+          },
+          "started_at": "2026-09-19T15:00:23.595204+00:00",
+          "successful_latency_ms": {
+            "p50": null,
+            "p95": null,
+            "p99": null
+          },
+          "successful_requests": 0,
+          "successful_requests_per_second": 0.0,
+          "warmup_outcomes": {}
+        },
+        "recovered": {
+          "all_attempted_latency_ms": {
+            "p50": 5.560168000556587,
+            "p95": 7.954468000207271,
+            "p99": 9.619225000278675
+          },
+          "artifacts_sha256": {
+            "config.json": "d8b62ea20f0d717fb82facf50527010d77f72279bcf2f3e87928d83d82559f00",
+            "requests.jsonl": "018107e4d3da90ccbe1e5878478c9a81ec054cbfa31b866a43a5c09b9e67060a",
+            "samples.jsonl": "9517f480e349c0d7d8f8e11fd7c9d0a4cb2a04450f2dbc327136b3866ead907d",
+            "warmup.jsonl": "820404741d1edb09cadaf40ad6ab9f4c603089f529feb1a42be79a2d73decfba",
+            "workload-manifest.json": "19193a53a95025910f0fb2bca5e0a03df63ef0b01cb29162610502704b5744d4"
+          },
+          "client_environment": {
+            "httpx": "0.28.1",
+            "platform": "Linux-7.0.12-linuxkit-aarch64-with-glibc2.36",
+            "python": "3.12.12"
+          },
+          "dispatch_lag_ms": {
+            "p50": 1.0810650001076283,
+            "p95": 2.3103680005078786,
+            "p99": 3.1417300006069127
+          },
+          "elapsed_seconds": 100.0,
+          "error_rate": 0.0,
+          "fallback_rate_among_successes": 1.0,
+          "finished_at": "2026-09-19T15:03:11.652210+00:00",
+          "gates": {
+            "all_arrivals_accounted_for": true,
+            "error_rate": true,
+            "no_load_generator_overflow": true,
+            "p95_latency": true,
+            "successful_predictions": true
+          },
+          "http_latency_ms": {
+            "p50": 4.30595799934963,
+            "p95": 6.399540999154851,
+            "p99": 8.014041999558685
+          },
+          "http_statuses": {
+            "200": 2000
+          },
+          "model_versions": {
+            "98ef1dd9ef4447f7-static": 2000
+          },
+          "outcomes": {
+            "success": 2000
+          },
+          "passed": true,
+          "publication_modes": {
+            "acknowledged": 2000
+          },
+          "run_id": "d06f5707d1a7432c932f9a555c595316",
+          "scheduled_requests": 2000,
+          "schema_version": "1.0",
+          "settings": {
+            "base_url": "http://tripml-tripml-serving:8000",
+            "concurrency": 32,
+            "expected_features": "static",
+            "expected_publication": "acknowledged",
+            "label": "approved-april-recovered",
+            "max_error_rate": 0.01,
+            "no_keepalive": false,
+            "p95_objective_ms": 50.0,
+            "rate": 20.0,
+            "requests": 2000,
+            "timeout_seconds": 2.0,
+            "warmup": 20
+          },
+          "started_at": "2026-09-19T15:01:31.557413+00:00",
+          "successful_latency_ms": {
+            "p50": 5.560168000556587,
+            "p95": 7.954468000207271,
+            "p99": 9.619225000278675
+          },
+          "successful_requests": 2000,
+          "successful_requests_per_second": 20.0,
+          "warmup_outcomes": {
+            "success": 20
+          }
+        }
+      },
+      "verdict": {
+        "broker_readback": true,
+        "load_or_failure_checks": true,
+        "monitoring": true,
+        "passed": true,
+        "same_api_process": true
+      }
+    },
+    "healthy": {
+      "broker_readback": {
+        "ambiguous": [],
+        "checks": {
+          "all_successes_consumed": true,
+          "no_duplicate_prediction_ids": true,
+          "no_mismatches": true
+        },
+        "expected": 10020,
+        "high_watermarks": {
+          "0": 3388,
+          "1": 3297,
+          "2": 3339
+        },
+        "matched": 10020,
+        "mismatched": [],
+        "passed": true,
+        "unrelated_records": 4
+      },
+      "execution": {
+        "context": "kind-tripml",
+        "failure": false,
+        "image": "tripml-serving:16bc98e7d329a2a4065de6b1fedc5f240feaae40d319e887cac9eb65adf6c991",
+        "namespace": "tripml",
+        "started_at": "2026-09-19T14:55:24.596282+00:00"
+      },
+      "metric_deltas": {
+        "healthy": [
+          {
+            "delta": 10020.0,
+            "labels": {
+              "status": "200"
+            },
+            "name": "tripml_prediction_requests_total"
+          },
+          {
+            "delta": 10020.0,
+            "labels": {},
+            "name": "tripml_feature_fallback_total"
+          },
+          {
+            "delta": 10020.0,
+            "labels": {
+              "outcome": "disabled"
+            },
+            "name": "tripml_feature_lookup_total"
+          },
+          {
+            "delta": 10020.0,
+            "labels": {
+              "outcome": "acknowledged"
+            },
+            "name": "tripml_prediction_publication_total"
+          }
+        ]
+      },
+      "monitoring": {
+        "dashboard_queries": 13,
+        "end": 1789829877.389963,
+        "healthy_targets": 1,
+        "start": 1789829667.963052,
+        "traffic_visible": true
+      },
+      "phase_maxima": {
+        "healthy": {
+          "max_client_latency_ms": 87.28052800051955,
+          "max_http_latency_ms": 84.96866699988459
+        }
+      },
+      "serving_identity": {
+        "container_id": "containerd://683c87039968b8a36ae20a3f924eb7a08586dc4b05be20744259e6492fc021d7",
+        "image_id": "sha256:16bc98e7d329a2a4065de6b1fedc5f240feaae40d319e887cac9eb65adf6c991",
+        "process_start_ticks": "665911",
+        "restarts": 0,
+        "uid": "4ab330aa-ddb8-4f97-8893-64b4e7265566"
+      },
+      "summaries": {
+        "healthy": {
+          "all_attempted_latency_ms": {
+            "p50": 5.11868599915033,
+            "p95": 7.990048999999999,
+            "p99": 11.43410899931041
+          },
+          "artifacts_sha256": {
+            "config.json": "d443d96a0d7791107951a020730060ddbab4e13666cdf922b2a92a44c4c4048f",
+            "requests.jsonl": "018107e4d3da90ccbe1e5878478c9a81ec054cbfa31b866a43a5c09b9e67060a",
+            "samples.jsonl": "c84d5b98922abc39927c523cfff172d927c2703bf9f67d93e59e116f01bb2063",
+            "warmup.jsonl": "1107019a61fbfe89a1530930076571ff54ba713d551735b32cfa3a2c6fc70184",
+            "workload-manifest.json": "19193a53a95025910f0fb2bca5e0a03df63ef0b01cb29162610502704b5744d4"
+          },
+          "client_environment": {
+            "httpx": "0.28.1",
+            "platform": "Linux-7.0.12-linuxkit-aarch64-with-glibc2.36",
+            "python": "3.12.12"
+          },
+          "dispatch_lag_ms": {
+            "p50": 1.2662640001508407,
+            "p95": 3.1206600006044027,
+            "p99": 3.9880229996924754
+          },
+          "elapsed_seconds": 100.0,
+          "error_rate": 0.0,
+          "fallback_rate_among_successes": 1.0,
+          "finished_at": "2026-09-19T14:57:08.185072+00:00",
+          "gates": {
+            "all_arrivals_accounted_for": true,
+            "error_rate": true,
+            "no_load_generator_overflow": true,
+            "p95_latency": true,
+            "successful_predictions": true
+          },
+          "http_latency_ms": {
+            "p50": 3.538582999681239,
+            "p95": 6.204833000083454,
+            "p99": 9.740667000187386
+          },
+          "http_statuses": {
+            "200": 10000
+          },
+          "model_versions": {
+            "98ef1dd9ef4447f7-static": 10000
+          },
+          "outcomes": {
+            "success": 10000
+          },
+          "passed": true,
+          "publication_modes": {
+            "acknowledged": 10000
+          },
+          "run_id": "3137e4a5c8164f4cb81a0a1817e0bb2f",
+          "scheduled_requests": 10000,
+          "schema_version": "1.0",
+          "settings": {
+            "base_url": "http://tripml-tripml-serving:8000",
+            "concurrency": 32,
+            "expected_features": "static",
+            "expected_publication": "acknowledged",
+            "label": "approved-april-healthy",
+            "max_error_rate": 0.01,
+            "no_keepalive": false,
+            "p95_objective_ms": 50.0,
+            "rate": 100.0,
+            "requests": 10000,
+            "timeout_seconds": 2.0,
+            "warmup": 20
+          },
+          "started_at": "2026-09-19T14:55:27.963052+00:00",
+          "successful_latency_ms": {
+            "p50": 5.11868599915033,
+            "p95": 7.990048999999999,
+            "p99": 11.43410899931041
+          },
+          "successful_requests": 10000,
+          "successful_requests_per_second": 100.0,
+          "warmup_outcomes": {
+            "success": 20
+          }
+        }
+      },
+      "verdict": {
+        "broker_readback": true,
+        "load_or_failure_checks": true,
+        "monitoring": true,
+        "passed": true,
+        "same_api_process": true
+      }
+    }
+  },
+  "schema_version": "1.0",
+  "scope": "Approved model on single-node kind; measured April load and isolated broker outage/recovery",
+  "software_checks": {
+    "checks_started_after_timed_loads": true,
+    "coverage_pct": 94.89,
+    "helm": "passed",
+    "mypy": "passed",
+    "passed": 322,
+    "ruff": "passed",
+    "skipped": 6
+  },
+  "source_sha256": {
+    "deploy/helm/tripml/dashboards/serving.json": "d3b193ef1579df36b156c086478d6e36b70a2c7e877a49cc242c9dbe038fa28b",
+    "scripts/plot-release-operations.py": "35ddca0407a30522bba13ae501a82c9122e56c77c645eb3a8d8f2d73843a71af",
+    "scripts/release-operations-driver.py": "90e2ef7eca79b576646f2a7e53ae600ea0124cd3422e70b03efbda7e365d55e9",
+    "scripts/run-release-operations.py": "8afee9bdc5cdc596757061858e3a33457c59856e6bd0233bfea0eb6bfeeb89a7",
+    "tests/test_release_operations.py": "711ac012501c2f0e9e37df3b03fc7030cd4e76ff9772262a55f462dc688e27a6"
+  },
+  "workload": {
+    "manifest_sha256": "19193a53a95025910f0fb2bca5e0a03df63ef0b01cb29162610502704b5744d4",
+    "month": "2024-04",
+    "requests_sha256": "018107e4d3da90ccbe1e5878478c9a81ec054cbfa31b866a43a5c09b9e67060a",
+    "unknown_passenger_requests": 1178
+  }
+}
